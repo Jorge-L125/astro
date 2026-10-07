@@ -1,0 +1,16 @@
+{
+  "name": "astro-bot",
+  "version": "0.1.0",
+  "description": "Astro: asistente de escritorio sobre Claude Code",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/start.js"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

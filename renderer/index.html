@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'">
+<title>Astro</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="dock" id="dock">
+  <div class="cloudslot" id="cloudslot"></div>
+  <div class="charwrap">
+    <div class="char" id="char" role="button" tabindex="0" aria-label="Astro: clic para escribir una pregunta"></div>
+    <div class="zzz" id="zzz"></div>
+    <div class="sesbar hit" id="sesbar" aria-label="Sesiones"></div>
+    <nav class="toolbar hit" id="toolbar" aria-label="Acciones de Astro">
+      <button id="bAsk" title="Preguntar (Ctrl+Shift+Espacio)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 7 0 1 1 3.5 5.8L4 19l1-3.2A6.8 6.8 0 0 1 4 12z"/></svg></button>
+      <button id="bNew" title="Nueva sesión (Alt+N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="bSettings" title="Ajustes" aria-expanded="false" aria-controls="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
+      <button id="bReset" title="Reiniciar esta conversación"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/></svg></button>
+      <button id="bMin" title="Minimizar a gota"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c3 4 5.5 7 5.5 10a5.5 5.5 0 0 1-11 0c0-3 2.5-6 5.5-10z"/></svg></button>
+    </nav>
+  </div>
+</div>
+
+<div class="settings hit" id="settings" hidden role="dialog" aria-label="Ajustes de Astro">
+  <h3>Ajustes</h3>
+  <div class="grp"><p class="lbl2">Color de esta sesión</p><div class="swatches" id="swatches"></div></div>
+  <div class="grp"><p class="lbl2">Posición en pantalla</p><div class="seg" id="seg-side"><button data-v="left">Izquierda</button><button data-v="right">Derecha</button></div></div>
+  <div class="grp"><p class="lbl2">Tema</p><div class="seg" id="seg-theme"><button data-v="auto">Auto</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button></div></div>
+  <div class="grp info" id="info"></div>
+  <button class="quit" id="bQuit">Cerrar Astro</button>
+</div>
+
+<aside class="panel hit" id="panel" aria-label="Detalle" aria-hidden="true">
+  <div class="phead">
+    <div class="ico" id="pico"></div>
+    <div class="ptxt"><h2 id="ptitle"></h2><p id="psub"></p></div>
+    <button class="x" id="close" aria-label="Cerrar">×</button>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Hojas"></nav>
+  <div class="pbody-wrap" id="pbody"></div>
+</aside>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

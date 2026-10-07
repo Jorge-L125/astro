@@ -1,0 +1,9 @@
+{
+  "shortcut": "CommandOrControl+Shift+Space",
+  "workingDirectory": "",
+  "model": "sonnet",
+  "claudePath": "claude",
+  "allowedTools": ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
+  "permissionMode": "default",
+  "notifyPort": 4545
+}
