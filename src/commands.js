@@ -71,8 +71,8 @@ function buildCommandList({ slashCommands = [], skills = [], terminalCommands = 
 const FALLBACK = buildCommandList({ slashCommands: Object.keys(BUILTIN).filter(n => n !== 'review' && n !== 'cost') });
 
 function createCommandStore(dir, { home, cwd } = {}) {
-  // Se leen una vez, al recibir la primera lista: recorrer ~/.claude cuesta unos 150 ms.
-  let descriptions = null;
+  // Se leen una vez por carpeta, al recibir su primera lista: recorrer ~/.claude cuesta unos 150 ms.
+  const descriptions = new Map();
   const file = path.join(dir, 'commands.json');
   let list = FALLBACK;
   try {
@@ -82,9 +82,9 @@ function createCommandStore(dir, { home, cwd } = {}) {
   return {
     get: () => list,
     /** Actualiza con lo que anunció Claude Code; devuelve true si la lista cambió. */
-    update(announced) {
-      if (!descriptions) descriptions = home ? readDescriptions({ home, cwd }) : new Map();
-      const next = buildCommandList(announced, descriptions);
+    update(announced, folder = cwd) {
+      if (!descriptions.has(folder)) descriptions.set(folder, home ? readDescriptions({ home, cwd: folder }) : new Map());
+      const next = buildCommandList(announced, descriptions.get(folder));
       if (!next.length || JSON.stringify(next) === JSON.stringify(list)) return false;
       list = next;
       try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(file, JSON.stringify(list)); } catch { /* sin caché */ }

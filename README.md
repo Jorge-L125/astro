@@ -47,12 +47,29 @@ El instalador de Windows se instala para el usuario actual en `%LOCALAPPDATA%\Pr
 
 En la versión instalada:
 
-- **Comando `astro`:** el instalador añade al PATH de tu usuario la carpeta `bin` de Astro (solo contiene `astro.cmd`), así que puedes abrirlo escribiendo `astro` en cualquier terminal nueva; si ya está abierto, se muestra. El desinstalador quita esa entrada y deja el resto del PATH como estaba.
+- **Comando `astro`:** el instalador añade al PATH de tu usuario la carpeta `bin` de Astro (solo contiene `astro.cmd`), así que puedes abrirlo escribiendo `astro` en cualquier terminal nueva; si ya está abierto, se muestra. En los dos casos se coloca en la carpeta desde la que lo llamaste (ver [Carpeta de trabajo](#carpeta-de-trabajo)). El desinstalador quita esa entrada y deja el resto del PATH como estaba.
 - **Configuración:** está en `%APPDATA%\Astro\astro.config.json` y se crea en el primer arranque. Se abre desde la bandeja con *Abrir configuración*.
 - **Avisos:** el comando del hook se copia desde la bandeja con *Copiar comando de avisos (hooks)*; pégalo en `~/.claude/settings.json` como se explica en [Avisos de tareas terminadas](#avisos-de-tareas-terminadas).
 - **Firma:** el instalador no está firmado, así que la primera vez Windows SmartScreen avisa de que es de un editor desconocido (*Más información → Ejecutar de todas formas*). Para quitar el aviso hace falta firmarlo con un certificado de firma de código.
 
 Para publicar una versión nueva, sube el número de `version` en `package.json` y vuelve a compilar.
+
+## Carpeta de trabajo
+
+Cada sesión trabaja en una carpeta: ahí lee Claude el proyecto (su `CLAUDE.md`, skills y comandos) y ahí se guardan sus conversaciones, junto a las que abras con `claude` en esa misma carpeta. Si no eliges ninguna, es la de `workingDirectory` en la configuración (por defecto, tu carpeta de usuario), como siempre.
+
+- **Desde la terminal:** escribe `astro` dentro de tu proyecto. Si una sesión ya trabaja en esa carpeta, Astro cambia a ella; si no, la sesión principal pasa a esa carpeta, siempre que no esté haciendo nada; si está ocupada, se abre una sesión nueva allí.
+- **Desde Astro:** el botón «📁 carpeta ▾» encima de la pregunta muestra la carpeta de la sesión y deja volver a la de siempre, elegir una reciente u otra cualquiera.
+- **Cambiar de carpeta empieza una conversación nueva.** La anterior queda guardada en su carpeta y se retoma desde allí con `/resume`. Si la sesión ya tiene conversación, Astro pide confirmación (salvo al llamarlo con `astro`, que ya es una petición explícita).
+- Una sesión nueva empieza en la carpeta de la sesión activa. Al cerrar y volver a abrir Astro, empieza en la carpeta de siempre; solo se recuerdan las recientes.
+
+## Permisos
+
+Claude solo usa sin preguntar las herramientas de `allowedTools` (por defecto, leer, buscar y la web). Si para responder intenta otra, por ejemplo editar un archivo o ejecutar un comando, Astro muestra un aviso con lo que quiso hacer («✏️ Editar archivos `main.js`», «💻 Ejecutar comandos `pnpm test`»):
+
+- **Permitir y seguir:** la herramienta se añade a `allowedTools` en tu configuración y Claude continúa donde se quedó, sin perder la conversación. Vale para todas las sesiones y carpetas. Si la herramienta puede cambiar cosas en tu equipo, el aviso lo dice y se marca en rojo.
+- **No, gracias:** no cambia nada.
+- **Quitar un permiso:** en Ajustes → *Claude puede usar sin preguntar*, pulsa la × de la herramienta.
 
 ## Sesiones
 
@@ -117,10 +134,10 @@ Para distribuirlo como `.app` hay que empaquetarlo en un Mac (por ejemplo con el
 | Campo | Qué hace |
 |---|---|
 | `shortcut` | Atajo global para llamar a Astro. |
-| `workingDirectory` | Carpeta donde trabaja Claude Code. Vacío = tu carpeta de usuario. |
+| `workingDirectory` | Carpeta de siempre: la que usa cada sesión si no eliges otra. Vacío = tu carpeta de usuario. |
 | `model` | Modelo para `claude --model` (`sonnet`, `opus`, `haiku`…). |
 | `claudePath` | Comando o ruta de Claude Code (`claude`, `claude.exe`, un `claude.cmd` de npm o su `cli.js`). |
-| `allowedTools` | Herramientas que Claude Code puede usar sin preguntar. Por defecto solo lectura y web. Añade `Edit`, `Write` o `Bash` si quieres que Astro cambie archivos o ejecute comandos. |
+| `allowedTools` | Herramientas que Claude Code puede usar sin preguntar. Por defecto solo lectura y web. Astro las amplía cuando lo permites desde su aviso (ver [Permisos](#permisos)); también puedes editarlas aquí, por ejemplo `Edit`, `Write`, `Bash` o `Bash(pnpm test:*)`. |
 | `permissionMode` | Modo de permisos de Claude Code (`default`, `acceptEdits`, `plan`…). |
 | `notifyPort` | Puerto local donde Astro recibe avisos de otras sesiones. |
 | `warmPool` | Arranca Claude Code al abrir la pregunta, mientras escribes, para que la respuesta no espere al CLI. |

@@ -2,6 +2,7 @@ import { createGota } from './gota.js';
 import { esc, inline, md, buildSheets } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
+import { groupDenials } from './tools.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -38,11 +39,11 @@ function lum(hex) {
 /* ---------- sesiones ---------- */
 // Cada sesión es una conversación propia con Claude Code: su historial, sus nubes y sus ayudantes.
 let seq = 0;
-function mkSession(name, color) {
+function mkSession(name, color, folder = null) {
   const clouds = document.createElement('div');
   clouds.className = 'clouds';
   clouds.setAttribute('aria-live', 'polite');
-  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null };
+  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder };
 }
 const sessions = [];
 let active = mkSession('Principal', cfg.color);
@@ -224,9 +225,10 @@ function openAsk() {
   askEl.innerHTML = '<textarea rows="1" aria-label="Tu pregunta" placeholder="¿En qué te ayudo?"></textarea><button class="send" aria-label="Enviar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
   const ta = askEl.querySelector('textarea'), b = askEl.querySelector('.send');
   // Mientras se escribe, Claude Code arranca (o despierta) para que la respuesta no espere al CLI.
-  api.prewarm(active.id);
+  api.prewarm(active.id, active.folder);
   const menu = commandMenu(ta);
   askEl.prepend(menu.el);
+  askEl.prepend(folderButton(active));
   ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
@@ -542,7 +544,7 @@ async function call(s, kind, payload, onEvent) {
   s.ids.add(id);
   if (onEvent) listeners.set(id, onEvent);
   try {
-    const r = await api[kind]({ id, ...payload });
+    const r = await api[kind]({ id, cwd: s.folder, ...payload });
     if (!r.ok) throw { code: r.code, message: r.message };
     return r;
   } finally {
@@ -686,8 +688,7 @@ async function ask(s, text, capture = null) {
     if (data.mood === 'surprised') gota.act('recoil');
     if (data.mood === 'worried') gota.act('shake');
   }
-  const blocked = [...new Set(denials)];
-  if (blocked.length) { const c = cloud(s); c.textContent = 'No tuve permiso para usar: ' + blocked.join(', ') + '. Puedes permitirlo en astro.config.json.'; }
+  if (denials.length) askPermission(s, denials);
   const sheets = buildSheets(data);
   if (sheets.length) showSheetsButton(s, sheets, data.title);
   if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);
@@ -701,22 +702,81 @@ async function ask(s, text, capture = null) {
   setTimeout(() => { if (!s.busy) setMood(s, 'neutral'); }, 2600);
 }
 
+/* ---------- permisos de herramientas ---------- */
+// Si Claude intentó usar una herramienta que no tiene permitida, Astro pregunta. Al permitirla se
+// añade a `allowedTools` (en la configuración, para todas las sesiones) y Claude sigue donde estaba.
+let toolsAllowed = [];
+const listEs = a => (a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' y ' + a[a.length - 1]);
+function askPermission(s, denials) {
+  const items = groupDenials(denials).filter(x => !toolsAllowed.includes(x.tool));
+  if (!items.length) return;
+  const c = cloud(s, 'perm');
+  c.innerHTML = '<h3></h3><ul></ul><p></p><div class="row"><button class="btn yes">Permitir y seguir</button><button class="opt no">No, gracias</button></div>';
+  c.querySelector('h3').textContent = items.length === 1 ? 'Necesito tu permiso para seguir' : 'Necesito tu permiso para estas herramientas';
+  const ul = c.querySelector('ul');
+  for (const it of items) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span class="ico" aria-hidden="true"></span><span><b></b><code></code><small></small></span>';
+    li.querySelector('.ico').textContent = it.icon;
+    li.querySelector('b').textContent = it.label;
+    li.querySelector('code').textContent = it.detail;
+    li.querySelector('small').textContent = it.count > 1 ? `y ${it.count - 1} más` : '';
+    li.title = it.tool;
+    ul.append(li);
+  }
+  const risks = [...new Set(items.map(x => x.risk).filter(Boolean))];
+  c.querySelector('p').textContent = (risks.length
+    ? `Si lo permites, podré ${listEs(risks)} en tus proyectos sin volver a preguntarte. `
+    : 'Si lo permites, no volveré a preguntarte. ')
+    + 'Se guarda en tu configuración y puedes quitarlo en Ajustes.';
+  if (risks.length) c.classList.add('risky');
+  const names = items.map(x => x.tool);
+  c.querySelector('.yes').onclick = async () => {
+    c.remove();
+    try { toolsAllowed = await api.grantTools(names); } catch { quip('No pude guardar el permiso.'); return; }
+    renderTools();
+    gota.act('nod');
+    if (!s.busy) ask(s, `Te di permiso para usar ${listEs(names)}. Sigue con lo que estabas haciendo.`);
+  };
+  c.querySelector('.no').onclick = () => { c.remove(); gota.act('nod'); };
+  if (s === active) gota.react('worried', 1200);
+}
+// Ajustes: lo que Claude puede usar sin preguntar, con una × para quitarlo.
+function renderTools() {
+  const el = $('tools');
+  el.innerHTML = '';
+  for (const t of toolsAllowed) {
+    const b = document.createElement('button');
+    b.className = 'tool'; b.title = `Quitar ${t}`;
+    b.setAttribute('aria-label', `Quitar ${t}`);
+    b.innerHTML = '<span></span><i aria-hidden="true">×</i>';
+    b.querySelector('span').textContent = t;
+    b.onclick = async () => { toolsAllowed = await api.revokeTool(t); renderTools(); };
+    el.append(b);
+  }
+  if (!toolsAllowed.length) el.textContent = 'Ninguna: Claude preguntará antes de usar cualquier herramienta.';
+}
+
 // Reiniciar pide confirmación si hay algo que perder de vista. La conversación no se borra:
 // queda guardada en Claude Code y se puede retomar con /resume.
 let confirmEl = null;
 function confirmReset(s) {
   if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
   if (!s.history.length && !s.claudeId) { resetConversation(s); return; }
+  askConfirm(s, `¿Reinicio «${s.name}»?`, 'Empezamos de cero. Esta conversación queda guardada y puedes retomarla con /resume.', 'Sí, reiniciar', () => resetConversation(s));
+}
+function askConfirm(s, title, text, yesLabel, onYes) {
   if (s !== active) return;
   if (confirmEl) confirmEl.remove();
   closeAsk();
   const c = cloud(s, 'confirm');
   confirmEl = c;
-  c.innerHTML = '<h3></h3><p></p><div class="row"><button class="btn yes">Sí, reiniciar</button><button class="opt no">Cancelar</button></div>';
-  c.querySelector('h3').textContent = `¿Reinicio «${s.name}»?`;
-  c.querySelector('p').textContent = 'Empezamos de cero. Esta conversación queda guardada y puedes retomarla con /resume.';
+  c.innerHTML = '<h3></h3><p></p><div class="row"><button class="btn yes"></button><button class="opt no">Cancelar</button></div>';
+  c.querySelector('h3').textContent = title;
+  c.querySelector('p').textContent = text;
+  c.querySelector('.yes').textContent = yesLabel;
   const done = () => { c.remove(); if (confirmEl === c) confirmEl = null; };
-  c.querySelector('.yes').onclick = () => { done(); resetConversation(s); };
+  c.querySelector('.yes').onclick = () => { done(); onYes(); };
   c.querySelector('.no').onclick = () => { done(); gota.act('nod'); };
   c.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(); } });
   gota.react('worried', 1200);
@@ -753,7 +813,7 @@ async function openResume() {
   const pb = $('pbody');
   pb.innerHTML = '<p class="muted">Leyendo las conversaciones guardadas…</p>';
   let res;
-  try { res = await api.history(); } catch (e) { res = { ok: false, message: e.message, items: [] }; }
+  try { res = await api.history(active.folder); } catch (e) { res = { ok: false, message: e.message, items: [] }; }
   if (!body.classList.contains('panel-open') || $('ptitle').textContent !== 'Retomar una conversación') return;
   const items = res.items || [];
   $('psub').textContent = res.ok
@@ -796,7 +856,7 @@ async function openResume() {
 async function resumeInto(s, c) {
   if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
   closePanel();
-  api.resumeConversation(s.id, c.id);
+  api.resumeConversation(s.id, c.id, s.folder);
   s.claudeId = c.id;
   const data = c.data || (c.lastText ? plainReply(c.lastText) : null);
   s.history = [];
@@ -819,6 +879,89 @@ async function resumeInto(s, c) {
   if (s === active) { gota.act('hop'); gota.react('happy', 1400); }
 }
 
+/* ---------- carpeta de trabajo ---------- */
+// Cada sesión trabaja en una carpeta: ahí lee Claude el proyecto y ahí se guardan sus conversaciones.
+// Sin elegir ninguna, es la de la configuración, como siempre.
+let defaultFolder = null, isWin = navigator.userAgent.includes('Windows');
+const sameDir = (a, b) => !!a && !!b && (isWin ? a.toLowerCase() === b.toLowerCase() : a === b);
+const baseName = p => String(p || '').split(/[\\/]/).filter(Boolean).pop() || String(p || '');
+let recentFolders = (() => { try { return JSON.parse(store.get('folders', '[]')) || []; } catch { return []; } })();
+function rememberFolder(dir) {
+  if (!dir || sameDir(dir, defaultFolder)) return;
+  recentFolders = [dir, ...recentFolders.filter(d => !sameDir(d, dir))].slice(0, 6);
+  store.set('folders', JSON.stringify(recentFolders));
+}
+
+// La sesión pasa a otra carpeta: empieza una conversación nueva; la anterior queda guardada en la suya.
+function applyFolder(s, dir) {
+  const prev = s.folder;
+  s.folder = dir;
+  rememberFolder(dir);
+  const had = s.history.length || s.claudeId;
+  s.claudeId = null; s.history.length = 0;
+  api.endConversation(s.id);
+  if (s === active) { closeAsk(); closePanel(); }
+  clearClouds(s); clearAgents(s);
+  renderSessions();
+  gota.act('hop');
+  const kept = had && prev ? ` La conversación anterior quedó guardada en «${baseName(prev)}».` : '';
+  greet(s, `Ahora trabajo en «${baseName(dir)}».${kept} ¿Qué hacemos?`);
+}
+// Cambiar desde la interfaz: si hay conversación, se confirma antes.
+function changeFolder(s, dir) {
+  if (!dir || sameDir(dir, s.folder)) return;
+  if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
+  if (!s.history.length && !s.claudeId) { applyFolder(s, dir); return; }
+  askConfirm(s, `¿Paso «${s.name}» a «${baseName(dir)}»?`,
+    `Empezamos una conversación nueva en esa carpeta. La actual queda guardada en «${baseName(s.folder)}» y la puedes retomar desde allí con /resume.`,
+    'Sí, cambiar', () => applyFolder(s, dir));
+}
+// «📁 carpeta ▾» en la nube de pregunta: la de siempre, las recientes y elegir otra.
+function folderButton(s) {
+  const wrap = document.createElement('div');
+  wrap.className = 'folder';
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'fbtn';
+  b.title = `Carpeta de trabajo: ${s.folder || ''}`;
+  b.setAttribute('aria-haspopup', 'menu');
+  b.innerHTML = '<span aria-hidden="true">📁</span><span class="nm"></span><span aria-hidden="true">▾</span>';
+  b.querySelector('.nm').textContent = baseName(s.folder);
+  const list = document.createElement('div');
+  list.className = 'fmenu'; list.hidden = true; list.setAttribute('role', 'menu');
+  const item = (label, title, fn) => {
+    const it = document.createElement('button');
+    it.type = 'button'; it.setAttribute('role', 'menuitem');
+    it.textContent = label; it.title = title;
+    it.onmousedown = e => e.preventDefault();
+    it.onclick = () => { list.hidden = true; fn(); };
+    list.append(it);
+  };
+  b.onmousedown = e => e.preventDefault();
+  b.onclick = () => {
+    list.innerHTML = '';
+    if (defaultFolder && !sameDir(defaultFolder, s.folder)) item(`🏠 ${baseName(defaultFolder)} (la de siempre)`, defaultFolder, () => changeFolder(s, defaultFolder));
+    for (const d of recentFolders.filter(d => !sameDir(d, s.folder))) item('📁 ' + baseName(d), d, () => changeFolder(s, d));
+    item('Elegir otra carpeta…', '', async () => changeFolder(s, await api.pickFolder(s.folder)));
+    list.hidden = !list.hidden;
+  };
+  wrap.append(b, list);
+  return wrap;
+}
+
+// `astro` en una terminal: a la sesión que ya trabaja en esa carpeta; si no hay, la principal pasa a
+// esa carpeta si está libre; si está ocupada, se abre una sesión nueva allí.
+function openFolder(dir) {
+  if (!dir) return;
+  const go = s => (gota.isMinimized() ? restoreThen(() => switchTo(s, openAsk)) : switchTo(s, openAsk));
+  const here = sessions.find(s => sameDir(s.folder, dir));
+  if (here) { go(here); return; }
+  const main = sessions[0];
+  if (!main.busy) { applyFolder(main, dir); go(main); return; }
+  rememberFolder(dir);
+  newSession({ folder: dir, name: baseName(dir) });
+}
+api.on('astro:folder', openFolder);
+
 /* ---------- gestión de sesiones ---------- */
 function renderSessions() {
   body.classList.toggle('multi', sessions.length > 1);
@@ -832,7 +975,7 @@ function renderSessions() {
     b.querySelector('.dot').style.background = s.color;
     b.querySelector('.nm').textContent = s.name;
     b.querySelector('kbd').textContent = altKey(i + 1);
-    b.title = s.name;
+    b.title = s.folder ? `${s.name} · ${s.folder}` : s.name;
     b.onclick = () => switchTo(s);
     const x = document.createElement('span');
     x.className = 'cx'; x.textContent = '×'; x.title = 'Cerrar sesión';
@@ -841,11 +984,12 @@ function renderSessions() {
     bar.append(b);
   });
 }
-function newSession() {
+function newSession(opts = {}) {
   if (sessions.length >= MAX_SESSIONS) { quip(`Puedo llevar hasta ${MAX_SESSIONS} sesiones a la vez.`); return null; }
-  if (gota.isMinimized()) { restoreThen(newSession); return null; }
+  if (gota.isMinimized()) { restoreThen(() => newSession(opts)); return null; }
   const used = sessions.map(s => s.color.toLowerCase());
-  const s = mkSession(`Sesión ${sessions.length + 1}`, SESS_COLORS.find(c => !used.includes(c.toLowerCase())) || pick(SESS_COLORS));
+  const s = mkSession(opts.name || `Sesión ${sessions.length + 1}`, SESS_COLORS.find(c => !used.includes(c.toLowerCase())) || pick(SESS_COLORS), opts.folder || active.folder);
+  if (opts.name) s.renamed = true;
   if (!gota.addSession(s.id, s.color)) return null;
   sessions.push(s);
   renderSessions();
@@ -953,8 +1097,15 @@ async function greet(s, text) {
 }
 applyAccent();
 applyLayout();
-api.config().then(c => {
+api.config().then(async c => {
   showPrefs(c.prefs);
+  defaultFolder = c.workingDirectory;
+  toolsAllowed = c.allowedTools || [];
+  renderTools();
+  isWin = c.platform === 'win32';
+  recentFolders = (await api.checkFolders(recentFolders).catch(() => recentFolders)).filter(d => !sameDir(d, defaultFolder));
+  active.folder = c.launchDir || defaultFolder;
+  rememberFolder(active.folder);
   if (Array.isArray(c.commands)) commands = c.commands;
   $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b></b> nueva · <b></b> cambiar`;
   const bs = $('info').querySelectorAll('b');
@@ -968,7 +1119,8 @@ api.config().then(c => {
   bs[2].textContent = c.model;
   const hr = new Date().getHours();
   const hi = hr < 12 ? '¡Buenos días!' : hr < 20 ? '¡Buenas tardes!' : '¡Buenas noches!';
-  setTimeout(() => { gota.act('wave'); greet(active, `${hi} Soy Astro. Haz clic en mí o pulsa ${bs[0].textContent} para hablarme.`); }, 600);
+  const where = sameDir(active.folder, defaultFolder) ? '' : ` Trabajo en «${baseName(active.folder)}».`;
+  setTimeout(() => { gota.act('wave'); greet(active, `${hi} Soy Astro.${where} Haz clic en mí o pulsa ${bs[0].textContent} para hablarme.`); }, 600);
 });
 
 /* ---------- modo de prueba (ASTRO_DEBUG) ---------- */
@@ -984,6 +1136,8 @@ if (new URLSearchParams(location.search).has('debug')) {
     fakeHistory: () => { active.history.push({ role: 'user', text: 'prueba' }); },
     openAsk,
     openResume,
+    openFolder,
+    folders: () => sessions.map(s => ({ name: s.name, folder: s.folder, busy: s.busy, active: s === active })),
     resumeFirst: async () => { const r = await api.history(); if (r.items[0]) resumeInto(active, r.items.find(c => c.astro) || r.items[0]); return r.items.length; },
     thinking: (status = 'Leyendo main.js…') => { const t = thinkingCloud(active); t.querySelector('.status').textContent = status; },
     fakeAgents(withError = false, sessionIndex) {

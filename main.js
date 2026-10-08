@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell, powerMonitor } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell, powerMonitor, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -77,6 +77,9 @@ function loadConfig() {
 }
 
 const config = loadConfig();
+// `astro` en una terminal pasa --here: Astro se coloca en la carpeta desde la que se llamó.
+// El acceso directo del escritorio no lo pasa (su carpeta es la de instalación).
+const launchDir = process.argv.includes('--here') ? process.cwd() : null;
 let win = null;
 let tray = null;
 const running = new Map(); // id de petición -> función para cancelarla
@@ -120,21 +123,52 @@ function setPref(key, value) {
   if (prefs.set(key, value)) applyPrefs();
 }
 
+/* ---------- herramientas permitidas ---------- */
+// Astro puede ampliar `allowedTools` cuando el usuario lo autoriza desde un aviso. Se guarda en el
+// archivo de configuración (el mismo que se abre desde la bandeja) y se aplica a todos los procesos.
+const TOOL_NAME = /^[A-Za-z][\w-]*(\([^()\n]{1,200}\))?$/;
+function saveAllowedTools(list) {
+  config.allowedTools = [...new Set(list)];
+  let file = {};
+  try { file = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch { /* se crea con lo que haya */ }
+  file.allowedTools = config.allowedTools;
+  try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(file, null, 2) + '\n'); } catch (e) { console.error('[astro] No pude guardar allowedTools:', e.message); }
+  // Los procesos de reserva se descartan y los de cada conversación se relanzan con las nuevas.
+  askPool.closeAll(); agentPool.closeAll();
+  for (const s of conversations.values()) s.setTools(config.allowedTools);
+  return config.allowedTools;
+}
+ipcMain.handle('tools:grant', (_e, names) => {
+  const ok = (Array.isArray(names) ? names : []).filter(n => typeof n === 'string' && TOOL_NAME.test(n));
+  return ok.length ? saveAllowedTools([...config.allowedTools, ...ok]) : config.allowedTools;
+});
+ipcMain.handle('tools:revoke', (_e, name) => saveAllowedTools(config.allowedTools.filter(n => n !== name)));
+
 /* ---------- Claude Code ---------- */
 let launcher = null;
 function getLauncher() {
   if (!launcher) launcher = resolveClaude(config.claudePath);
   return launcher;
 }
-const baseOpts = () => ({
+// Cada sesión de Astro trabaja en su carpeta (la de la configuración si no se eligió otra). Claude Code
+// guarda las conversaciones por carpeta, así que quedan junto a las del proyecto.
+const IS_WIN = process.platform === 'win32';
+const sameDir = (a, b) => (IS_WIN ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
+function folderOf(dir) {
+  if (typeof dir !== 'string' || !dir.trim()) return config.workingDirectory;
+  const p = path.resolve(dir);
+  try { return fs.statSync(p).isDirectory() ? p : config.workingDirectory; } catch { return config.workingDirectory; }
+}
+const isDefault = cwd => sameDir(cwd, config.workingDirectory);
+const baseOpts = (cwd = config.workingDirectory) => ({
   launcher: getLauncher(),
-  cwd: config.workingDirectory,
+  cwd,
   model: config.model,
   allowedTools: config.allowedTools,
   permissionMode: config.permissionMode,
   idleMs: config.idleMinutes * 60 * 1000,
 });
-const askOpts = () => ({ ...baseOpts(), systemPrompt: ASTRO_RULES(config.workingDirectory), schema: ASTRO_SCHEMA });
+const askOpts = (cwd = config.workingDirectory) => ({ ...baseOpts(cwd), systemPrompt: ASTRO_RULES(cwd), schema: ASTRO_SCHEMA });
 // Cada proceso de Claude Code ocupa ~400 MB, así que no se deja ninguno esperando "por si acaso":
 // se arranca cuando el usuario abre la pregunta (mientras escribe le da tiempo a arrancar) y, si al
 // final no se usa, se cierra a los pocos minutos.
@@ -147,22 +181,36 @@ function prewarm(pool, n = 1) {
   try { pool.fill(n); } catch (e) { console.error('[astro] No pude precalentar Claude Code:', e.message); }
 }
 
-function conversationFor(conv, resume) {
+// Los procesos de reserva (pool) solo sirven para la carpeta de la configuración; en otra carpeta
+// se arranca uno propio.
+function freshSession(cwd, extra = {}) {
+  const s = createClaudeSession({ ...askOpts(cwd), ...extra });
+  s.folder = cwd;
+  return s;
+}
+function conversationFor(conv, resume, cwd = config.workingDirectory) {
   let s = conversations.get(conv);
+  // Una conversación pertenece a su carpeta: si la sesión cambió de carpeta, empieza otra.
+  if (s && !sameDir(s.folder, cwd)) { endConversation(conv); s = null; }
   if (!s) {
-    s = resume ? createClaudeSession({ ...askOpts(), resume }) : askPool.take();
-    s.setIdle(config.idleMinutes * 60 * 1000);
+    if (resume) s = freshSession(cwd, { resume });
+    else if (isDefault(cwd)) { s = askPool.take(); s.folder = cwd; }
+    else s = freshSession(cwd);
     conversations.set(conv, s);
   }
+  s.setIdle(config.idleMinutes * 60 * 1000);
   return s;
 }
 
 // La interfaz avisa al abrir la pregunta: si la sesión ya tiene conversación, se despierta su proceso
-// (con --resume si se cerró por inactividad); si es nueva, se deja uno listo en el pool.
-function warmFor(conv) {
+// (con --resume si se cerró por inactividad); si es nueva, se deja uno listo para su carpeta.
+function warmFor(conv, cwd = config.workingDirectory) {
   if (!config.warmPool) return;
   const s = conversations.get(conv);
-  if (s) { if (!s.busy) s.warm(); } else prewarm(askPool);
+  if (s && sameDir(s.folder, cwd)) { if (!s.busy) s.warm(); return; }
+  if (s) endConversation(conv);
+  if (isDefault(cwd)) prewarm(askPool);
+  else conversations.set(conv, freshSession(cwd, { idleMs: SPARE_IDLE_MS }).warm());
 }
 function endConversation(conv) {
   const s = conversations.get(conv);
@@ -170,17 +218,17 @@ function endConversation(conv) {
 }
 // Retomar: la sesión de la interfaz pasa a atender una conversación guardada. El proceso arranca ya
 // (con --resume) para que la primera pregunta no espere al CLI.
-function resumeConversation(conv, sessionId) {
+function resumeConversation(conv, sessionId, cwd = config.workingDirectory) {
   endConversation(conv);
-  const s = createClaudeSession({ ...askOpts(), resume: sessionId });
+  const s = freshSession(cwd, { resume: sessionId });
   conversations.set(conv, config.warmPool ? s.warm() : s);
 }
 
 // Cada conversación nueva anuncia sus comandos "/"; si cambiaron, la interfaz recibe la lista nueva.
-function relayEvent(id, ev) {
+function relayEvent(id, ev, cwd) {
   if (ev.type === 'start') {
     // La lista de comandos / es grande: solo viaja a la interfaz si cambió.
-    if (commands.update(ev)) send('astro:commands', commands.get());
+    if (commands.update(ev, cwd)) send('astro:commands', commands.get());
     ev = { type: 'start', sessionId: ev.sessionId };
   }
   send('claude:event', { id, ...ev });
@@ -295,6 +343,8 @@ ipcMain.on('app:quit', () => app.quit());
 ipcMain.handle('config:get', () => ({
   shortcut: config.shortcut,
   workingDirectory: config.workingDirectory,
+  launchDir: launchDir && folderOf(launchDir),
+  allowedTools: config.allowedTools,
   model: config.model,
   user: os.userInfo().username,
   platform: process.platform,
@@ -304,7 +354,8 @@ ipcMain.handle('config:get', () => ({
 ipcMain.on('prefs:set', (_e, { key, value }) => setPref(key, value));
 ipcMain.on('capture:discard', (_e, id) => captures.discard(id));
 
-ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId }) => {
+ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, cwd: dir }) => {
+  const cwd = folderOf(dir);
   let prompt = results ? integrationPrompt(results) : text;
   if (captureId && !results) {
     const image = captures.take(captureId);
@@ -315,23 +366,24 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId }
   }
   let handle;
   try {
-    handle = conversationFor(conv, resume).send(prompt, ev => relayEvent(id, ev));
+    handle = conversationFor(conv, resume, cwd).send(prompt, ev => relayEvent(id, ev, cwd));
   } catch (e) {
     return { ok: false, code: e.code || 'not_found', message: e.message };
   }
   const done = track(id, handle).then(r => {
     // Si Claude reparte la tarea, los ayudantes arrancan ya, mientras la interfaz anuncia el reparto.
     const n = r.structured && Array.isArray(r.structured.delegate) ? r.structured.delegate.length : 0;
-    if (n && !results) prewarm(agentPool, Math.min(3, n));
+    if (n && !results && isDefault(cwd)) prewarm(agentPool, Math.min(3, n));
     return r;
   });
   return toReply(done, r => ({ data: r.structured, text: r.text, sessionId: r.sessionId, denials: r.denials }));
 });
 
-ipcMain.handle('claude:agent', (_e, { id, name, task, transcript }) => {
+ipcMain.handle('claude:agent', (_e, { id, name, task, transcript, cwd: dir }) => {
+  const cwd = folderOf(dir);
   let s;
-  try { s = agentPool.take(); } catch (e) { return { ok: false, code: e.code || 'not_found', message: e.message }; }
-  const handle = s.send(agentPrompt(name, task, transcript), ev => relayEvent(id, ev));
+  try { s = isDefault(cwd) ? agentPool.take() : createClaudeSession(baseOpts(cwd)); } catch (e) { return { ok: false, code: e.code || 'not_found', message: e.message }; }
+  const handle = s.send(agentPrompt(name, task, transcript), ev => relayEvent(id, ev, cwd));
   return toReply(track(id, handle).finally(() => s.close()), r => ({ text: r.text }));
 });
 
@@ -340,20 +392,31 @@ ipcMain.on('claude:cancel', (_e, id) => {
   if (cancel) cancel();
 });
 ipcMain.on('claude:end', (_e, conv) => endConversation(conv));
-ipcMain.on('claude:prewarm', (_e, conv) => warmFor(conv));
-ipcMain.on('claude:resume', (_e, { conv, sessionId }) => {
-  if (typeof sessionId === 'string' && /^[\w-]{8,80}$/.test(sessionId)) resumeConversation(conv, sessionId);
+ipcMain.on('claude:prewarm', (_e, { conv, cwd }) => warmFor(conv, folderOf(cwd)));
+ipcMain.on('claude:resume', (_e, { conv, sessionId, cwd }) => {
+  if (typeof sessionId === 'string' && /^[\w-]{8,80}$/.test(sessionId)) resumeConversation(conv, sessionId, folderOf(cwd));
 });
-ipcMain.handle('history:list', () => {
+ipcMain.handle('history:list', (_e, dir) => {
+  const cwd = folderOf(dir);
   try {
-    return { ok: true, folder: config.workingDirectory, items: listConversations({ claudeHome: path.join(os.homedir(), '.claude'), cwd: config.workingDirectory }) };
+    return { ok: true, folder: cwd, items: listConversations({ claudeHome: path.join(os.homedir(), '.claude'), cwd }) };
   } catch (e) {
     return { ok: false, message: e.message, items: [] };
   }
 });
 
 /* ---------- arranque ---------- */
-app.on('second-instance', summon);
+app.on('second-instance', (_e, argv, workingDirectory) => {
+  summon();
+  if (argv.includes('--here')) send('astro:folder', folderOf(workingDirectory));
+});
+// Elegir otra carpeta para la sesión activa.
+ipcMain.handle('folder:pick', async (_e, current) => {
+  const r = await dialog.showOpenDialog(win, { title: 'Carpeta de trabajo de esta sesión', defaultPath: folderOf(current), properties: ['openDirectory'] });
+  return r.canceled || !r.filePaths[0] ? null : folderOf(r.filePaths[0]);
+});
+// Comprueba carpetas recordadas: las que ya no existen se descartan.
+ipcMain.handle('folder:check', (_e, list) => (Array.isArray(list) ? list.filter(d => typeof d === 'string' && sameDir(folderOf(d), path.resolve(d))) : []));
 
 app.whenReady().then(() => {
   if (IS_MAC) {
