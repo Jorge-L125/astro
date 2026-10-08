@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new'];
+const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:capture', 'astro:prefs'];
 
 contextBridge.exposeInMainWorld('astro', {
   setIgnore: ignore => ipcRenderer.send('mouse:ignore', ignore),
@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('astro', {
   ask: req => ipcRenderer.invoke('claude:ask', req),
   agent: req => ipcRenderer.invoke('claude:agent', req),
   cancel: id => ipcRenderer.send('claude:cancel', id),
+  endConversation: conv => ipcRenderer.send('claude:end', conv),
+  setPref: (key, value) => ipcRenderer.send('prefs:set', { key, value }),
+  discardCapture: id => ipcRenderer.send('capture:discard', id),
   on(channel, fn) {
     if (!EVENTS.includes(channel)) return () => {};
     const handler = (_e, payload) => fn(payload);

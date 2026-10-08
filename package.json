@@ -5,12 +5,22 @@
   "main": "main.js",
   "private": true,
   "scripts": {
-    "start": "node scripts/start.js"
+    "start": "node scripts/start.js",
+    "test": "node --test \"test/*.test.js\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "pnpm lint && pnpm test"
   },
   "dependencies": {
     "three": "^0.186.1"
   },
   "devDependencies": {
-    "electron": "^44.7.0"
+    "@eslint/js": "^10.0.1",
+    "electron": "^44.7.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

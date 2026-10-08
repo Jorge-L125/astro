@@ -1,4 +1,6 @@
 import { createGota } from './gota.js';
+import { esc, inline, md, buildSheets } from './markdown.js';
+import { formatAccel, altKey } from './keys.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -38,7 +40,7 @@ function mkSession(name, color) {
   const clouds = document.createElement('div');
   clouds.className = 'clouds';
   clouds.setAttribute('aria-live', 'polite');
-  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), pending: null };
+  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null };
 }
 const sessions = [];
 let active = mkSession('Principal', cfg.color);
@@ -126,6 +128,19 @@ $('bNew').onclick = () => newSession();
 $('bReset').onclick = () => resetConversation(active);
 $('bMin').onclick = () => gota.minimize();
 $('bQuit').onclick = () => api.quit();
+// Preferencias que guarda el proceso principal (también se cambian desde la bandeja).
+function showPrefs(p) {
+  document.querySelectorAll('.toggle[data-pref]').forEach(t => t.setAttribute('aria-checked', String(!!p[t.dataset.pref])));
+  if (!p.watchCaptures) dropOffer();
+}
+document.querySelectorAll('.toggle[data-pref]').forEach(t => {
+  t.onclick = () => {
+    const on = t.getAttribute('aria-checked') !== 'true';
+    t.setAttribute('aria-checked', String(on));
+    api.setPref(t.dataset.pref, on);
+  };
+});
+api.on('astro:prefs', showPrefs);
 addEventListener('pointerdown', e => {
   if (!$('settings').hidden && !$('settings').contains(e.target) && !$('bSettings').contains(e.target)) toggleSettings(false);
 });
@@ -145,7 +160,11 @@ addEventListener('mousemove', e => updateIgnore(e.clientX, e.clientY));
 /* ---------- nubes ---------- */
 let askEl = null;
 function stickToBottom(s) { s.clouds.scrollTop = s.clouds.scrollHeight; }
-function clearClouds(s) { s.clouds.innerHTML = ''; s.tasksEl = null; if (s === active) askEl = null; }
+function clearClouds(s) {
+  if (offer && offer.s === s) dropOffer();
+  s.clouds.innerHTML = ''; s.tasksEl = null;
+  if (s === active) { askEl = null; detachCapture(); }
+}
 function cloud(s, cls) {
   s.clouds.querySelectorAll('.cloud.tail').forEach(c => c.classList.remove('tail'));
   s.clouds.querySelectorAll('.cloud:not(.ask):not(.tasks)').forEach(c => c.classList.add('old'));
@@ -179,7 +198,7 @@ function quip(text) {
 function openAsk() {
   if (active.busy || gota.isSwapping()) return;
   if (gota.isMinimized()) { restoreThen(openAsk); return; }
-  if (askEl) { askEl.querySelector('textarea').focus(); return; }
+  if (askEl) { renderAttachment(); askEl.querySelector('textarea').focus(); return; }
   gota.wake();
   gota.react('surprised', 500);
   active.clouds.querySelectorAll('.quip').forEach(c => c.remove());
@@ -192,10 +211,79 @@ function openAsk() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
     if (e.key === 'Escape') { closeAsk(); api.blur(); }
   });
-  b.onclick = () => { const v = ta.value.trim(); if (v) ask(active, v); };
+  b.onclick = () => {
+    const v = ta.value.trim();
+    if (!v) return;
+    const cap = attached;
+    attached = null; // pasa a la pregunta: ya no se descarta al cerrar
+    ask(active, v, cap);
+  };
+  renderAttachment();
   ta.focus();
 }
-function closeAsk() { if (askEl) askEl.remove(); askEl = null; }
+// Cerrar la pregunta sin enviarla descarta la captura adjunta.
+function closeAsk() { if (askEl) askEl.remove(); askEl = null; detachCapture(); }
+
+/* ---------- capturas de pantalla ---------- */
+// Una captura se ofrece en una nube y solo viaja a Claude si se usa en una pregunta; si no, se descarta.
+const CAPTURE_TTL = 90 * 1000;
+let offer = null; // { cap, el, use, s, timer }: nube que ofrece la captura
+let attached = null; // captura adjunta a la pregunta abierta
+
+function dropOffer(discard = true) {
+  if (!offer) return;
+  clearTimeout(offer.timer);
+  offer.el.remove();
+  if (discard) api.discardCapture(offer.cap.id);
+  offer = null;
+}
+function detachCapture() {
+  if (!attached) return;
+  api.discardCapture(attached.id);
+  attached = null;
+  renderAttachment();
+}
+function offerCapture(cap) {
+  dropOffer();
+  const s = active;
+  const c = cloud(s, 'capture');
+  c.innerHTML = '<img alt="Captura de pantalla"><p></p><div class="row"><button class="btn use">Preguntar sobre ella</button><button class="opt drop">Descartar</button></div>';
+  c.querySelector('img').src = cap.thumb;
+  c.querySelector('p').textContent = pick(['¡Vi una captura! ¿Te ayudo con ella?', 'Cacé una captura. ¿La miramos juntos?', '¡Captura a la vista! ¿Pregunto sobre ella?']);
+  const use = c.querySelector('.use');
+  use.disabled = s.busy;
+  use.onclick = useCapture;
+  c.querySelector('.drop').onclick = () => { dropOffer(); gota.act('nod'); };
+  offer = { cap, el: c, use, s, timer: setTimeout(() => dropOffer(), CAPTURE_TTL) };
+  gota.wake();
+  gota.react('surprised', 900);
+  gota.act('hop');
+}
+function useCapture() {
+  if (!offer || offer.s !== active || active.busy) return;
+  const cap = offer.cap;
+  dropOffer(false);
+  if (attached && attached.id !== cap.id) api.discardCapture(attached.id);
+  attached = cap;
+  openAsk();
+}
+function renderAttachment() {
+  if (!askEl) return;
+  let el = askEl.querySelector('.att');
+  if (!attached) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'att';
+    el.innerHTML = '<img alt=""><span><b>Captura adjunta</b><small></small></span><button class="cx" aria-label="Quitar la captura" title="Quitar la captura">×</button>';
+    el.querySelector('.cx').onclick = () => { detachCapture(); askEl && askEl.querySelector('textarea').focus(); };
+    askEl.prepend(el);
+  }
+  el.querySelector('img').src = attached.thumb;
+  el.querySelector('small').textContent = `${attached.width} × ${attached.height} · solo se envía si preguntas`;
+}
+api.on('astro:capture', cap => {
+  if (gota.isMinimized()) restoreThen(() => offerCapture(cap)); else offerCapture(cap);
+});
 
 function showChoice(s, choice) {
   const c = cloud(s, 'choice'), multi = !!choice.multi, picked = new Set();
@@ -228,23 +316,6 @@ function showChoice(s, choice) {
   stickToBottom(s);
 }
 
-/* ---------- markdown simple ---------- */
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const inline = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-function mdBlock(b) {
-  const L = b.split('\n');
-  if (L.every(l => /^\s*[-*] /.test(l))) return '<ul>' + L.map(l => '<li>' + inline(l.replace(/^\s*[-*] /, '')) + '</li>').join('') + '</ul>';
-  if (L.every(l => /^\s*\d+[.)] /.test(l))) return '<ol>' + L.map(l => '<li>' + inline(l.replace(/^\s*\d+[.)] /, '')) + '</li>').join('') + '</ol>';
-  if (/^#{1,4} /.test(b)) return '<h4>' + inline(b.replace(/^#+ /, '')) + '</h4>';
-  return '<p>' + L.map(inline).join('<br>') + '</p>';
-}
-function md(src) {
-  return String(src || '').split('```').map((p, i) => {
-    if (i % 2) { const nl = p.indexOf('\n'); return '<pre><code>' + esc((nl >= 0 ? p.slice(nl + 1) : p).replace(/\n$/, '')) + '</code></pre>'; }
-    return p.split(/\n{2,}/).map(s => s.trim()).filter(Boolean).map(mdBlock).join('');
-  }).join('');
-}
-
 /* ---------- panel de hojas ---------- */
 const blobIco = c => `<svg viewBox="0 0 40 40"><path d="M20 3c6 7 13 13 13 21a13 13 0 0 1-26 0C7 16 14 10 20 3z" fill="${c}"/><rect x="14" y="20" width="3.4" height="7" rx="1.7" fill="#141416"/><rect x="22.6" y="20" width="3.4" height="7" rx="1.7" fill="#141416"/></svg>`;
 let panelAgent = null;
@@ -257,18 +328,6 @@ function openShell(title, sub, ico) {
 function closePanel() { body.classList.remove('panel-open'); $('panel').setAttribute('aria-hidden', 'true'); panelAgent = null; }
 $('close').onclick = closePanel;
 
-function buildSheets(data) {
-  const sheets = [];
-  const text = data.detail ? String(data.detail).split(/\n{2,}/) : [];
-  let cur = [], len = 0;
-  for (const p of text.map(s => s.trim()).filter(Boolean)) {
-    if (len && len + p.length > 750) { sheets.push({ kind: 'text', text: cur.join('\n\n') }); cur = []; len = 0; }
-    cur.push(p); len += p.length;
-  }
-  if (cur.length) sheets.push({ kind: 'text', text: cur.join('\n\n') });
-  if (data.code && data.code.content) sheets.push({ kind: 'code', code: data.code });
-  return sheets;
-}
 function showSheetsButton(s, sheets, title) {
   const b = document.createElement('button');
   b.className = 'sheets hit';
@@ -331,6 +390,10 @@ function renderTasks(s) {
   ttl.className = 'ttl';
   ttl.textContent = n ? `Ayudantes · ${n} trabajando` : 'Ayudantes · terminaron';
   s.tasksEl.append(ttl);
+  if (n) {
+    const stop = stopButton(s);
+    ttl.append(stop);
+  }
   const atBottom = s.clouds.scrollHeight - s.clouds.scrollTop - s.clouds.clientHeight < 80;
   for (const a of s.agents) {
     const row = document.createElement('button');
@@ -355,7 +418,7 @@ function highlightTask(id) {
 function setAgentStatus(s, a, status) {
   a.status = status;
   gota.finishAgent(a.id, status === 'done');
-  if (s === active && status === 'error') quip(`${a.name} tuvo un problema.`);
+  if (s === active && status === 'error' && !s.stopped) quip(`${a.name} tuvo un problema.`);
   renderTasks(s);
   if (panelAgent === a) renderAgent(a);
 }
@@ -390,21 +453,32 @@ async function call(s, kind, payload, onEvent) {
     listeners.delete(id);
   }
 }
-function cancelAll(s) { for (const id of s.ids) api.cancel(id); }
+// Detiene lo que esté haciendo la sesión, incluidos los ayudantes y la respuesta que los integra.
+function cancelAll(s) { s.stopped = true; for (const id of s.ids) api.cancel(id); }
 
 const transcript = s => s.history.map(h => (h.role === 'user' ? 'Usuario: ' + h.text : 'Astro: ' + JSON.stringify(h.data))).join('\n');
 function errLines(e) {
   const code = e && e.code;
   if (code === 'cancelled') return ['Listo, me detuve.'];
   if (code === 'not_found') return ['No encuentro el comando claude. ¿Está instalado y en el PATH?'];
+  if (code === 'capture_gone') return ['Esa captura ya caducó.', 'Haz otra y vuelve a preguntarme.'];
   if (code === 'bad') return ['Claude respondió en un formato que no entendí. ¿Lo intentamos otra vez?'];
   const msg = String((e && e.message) || '').replace(/\s+/g, ' ').slice(0, 110);
   return ['Algo falló al hablar con Claude.', msg || 'Prueba de nuevo en un momento.'];
 }
+// Botón de detener como el de Claude: un cuadrado dentro de un círculo.
+function stopButton(s) {
+  const b = document.createElement('button');
+  b.className = 'stop'; b.title = 'Detener'; b.setAttribute('aria-label', 'Detener');
+  b.innerHTML = '<i></i>';
+  b.onclick = () => cancelAll(s);
+  return b;
+}
 function thinkingCloud(s) {
   const t = cloud(s);
-  t.innerHTML = '<span class="dots"><i></i><i></i><i></i></span><button class="stop">Detener</button><span class="status"></span>';
-  t.querySelector('.stop').onclick = () => cancelAll(s);
+  t.classList.add('thinking');
+  t.innerHTML = '<span class="dots"><i></i><i></i><i></i></span><span class="status"></span>';
+  t.append(stopButton(s));
   return t;
 }
 const progressInto = el => ev => {
@@ -433,6 +507,7 @@ function validData(r) {
 }
 function setBusy(s, b) {
   s.busy = b;
+  if (offer && offer.s === s) offer.use.disabled = b;
   if (s === active) gota.setBusy?.(b);
   renderSessions();
 }
@@ -444,18 +519,21 @@ function maybeRename(s, text) {
   if (name) { s.name = name.length > 22 ? name.slice(0, 21) + '…' : name; renderSessions(); }
 }
 
-async function ask(s, text) {
+async function ask(s, text, capture = null) {
   if (s.busy) return;
   setBusy(s, true);
+  s.stopped = false;
   if (s === active) { closeAsk(); closePanel(); }
   clearClouds(s); clearAgents(s);
   maybeRename(s, text);
-  const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = text; s.clouds.append(you);
-  s.history.push({ role: 'user', text });
+  const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = text;
+  if (capture) { const img = document.createElement('img'); img.className = 'shot'; img.alt = 'Captura adjunta'; img.src = capture.thumb; you.prepend(img); }
+  s.clouds.append(you);
+  s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
   let t = thinkingCloud(s), data, denials = [];
   try {
-    let r = await call(s, 'ask', { text, resume: s.claudeId }, progressInto(t));
+    let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t));
     s.claudeId = r.sessionId || s.claudeId;
     data = validData(r);
     denials = r.denials || [];
@@ -473,6 +551,8 @@ async function ask(s, text) {
       renderTasks(s);
       renderSessions();
       await Promise.all(s.agents.map(a => runAgent(s, a)));
+      // Si se detuvo o se cerró la sesión mientras trabajaban, no se gasta otra llamada en integrar.
+      if (s.stopped || !sessions.includes(s)) throw { code: 'cancelled' };
       const failed = s.agents.filter(a => a.status === 'error');
       if (s === active) {
         if (failed.length) { gota.act('scratch'); gota.react('thinking', 1800); }
@@ -481,7 +561,7 @@ async function ask(s, text) {
       setMood(s, 'thinking');
       t = thinkingCloud(s);
       const results = s.agents.map(a => `### ${a.name} (${a.status === 'done' ? 'terminado' : 'incompleto'})\nTarea: ${a.task}\n${a.output}`).join('\n\n');
-      r = await call(s, 'ask', { results, resume: s.claudeId }, progressInto(t));
+      r = await call(s, 'ask', { conv: s.id, results, resume: s.claudeId }, progressInto(t));
       s.claudeId = r.sessionId || s.claudeId;
       data = validData(r);
       data.delegate = null;
@@ -517,6 +597,7 @@ async function ask(s, text) {
 function resetConversation(s) {
   if (s.busy) return;
   s.claudeId = null; s.history.length = 0;
+  api.endConversation(s.id);
   if (s === active) closePanel();
   clearClouds(s); clearAgents(s);
   gota.act('spin');
@@ -525,6 +606,7 @@ function resetConversation(s) {
 
 /* ---------- gestión de sesiones ---------- */
 function renderSessions() {
+  body.classList.toggle('multi', sessions.length > 1);
   const bar = $('sesbar');
   bar.innerHTML = '';
   if (sessions.length < 2) return;
@@ -534,7 +616,7 @@ function renderSessions() {
     b.innerHTML = '<span class="dot"></span><span class="nm"></span><kbd></kbd>';
     b.querySelector('.dot').style.background = s.color;
     b.querySelector('.nm').textContent = s.name;
-    b.querySelector('kbd').textContent = 'Alt+' + (i + 1);
+    b.querySelector('kbd').textContent = altKey(i + 1);
     b.title = s.name;
     b.onclick = () => switchTo(s);
     const x = document.createElement('span');
@@ -571,6 +653,8 @@ function onSwitched(id) {
   active.clouds.remove();
   active = s;
   $('cloudslot').append(s.clouds);
+  // la captura ofrecida sigue a la sesión que está al frente
+  if (offer) { offer.s = s; offer.use.disabled = s.busy; s.clouds.append(offer.el); }
   stickToBottom(s);
   applyAccent();
   gota.setMood(s.mood);
@@ -590,6 +674,7 @@ function closeSession(s) {
   if (!s || sessions.length < 2) return;
   if (s === active) { pendingClose = s; switchTo(sessions.find(x => x !== s)); return; }
   cancelAll(s);
+  api.endConversation(s.id);
   gota.closeSession(s.id);
   sessions.splice(sessions.indexOf(s), 1);
   s.clouds.remove();
@@ -639,7 +724,8 @@ api.on('astro:summon', () => {
   askEl ? closeAsk() : openAsk();
 });
 api.on('astro:minimize', () => gota.minimize());
-api.on('astro:new', () => resetConversation(active));
+api.on('astro:new', () => newSession());
+api.on('astro:reset', () => resetConversation(active));
 
 /* ---------- inicio ---------- */
 async function greet(s, text) {
@@ -651,9 +737,15 @@ async function greet(s, text) {
 applyAccent();
 applyLayout();
 api.config().then(c => {
-  $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b>Alt+N</b> nueva · <b>Alt+1…6</b> cambiar`;
+  showPrefs(c.prefs);
+  $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b></b> nueva · <b></b> cambiar`;
   const bs = $('info').querySelectorAll('b');
-  bs[0].textContent = c.shortcut.replace('CommandOrControl', 'Ctrl');
+  const shortcut = formatAccel(c.shortcut);
+  bs[0].textContent = shortcut;
+  bs[3].textContent = altKey('N');
+  bs[4].textContent = altKey('1…6');
+  $('bAsk').title = `Preguntar (${shortcut})`;
+  $('bNew').title = `Nueva sesión (${altKey('N')})`;
   bs[1].textContent = c.workingDirectory;
   bs[2].textContent = c.model;
   const hr = new Date().getHours();
@@ -670,6 +762,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     switchTo: i => switchTo(sessions[i]),
     closeSession: i => closeSession(sessions[i]),
     say: text => { const c = cloud(active); c.textContent = text; },
+    thinking: (status = 'Leyendo main.js…') => { const t = thinkingCloud(active); t.querySelector('.status').textContent = status; },
     fakeAgents(withError = false, sessionIndex) {
       const s = sessionIndex === undefined ? active : sessions[sessionIndex];
       s.agents = [['Investigador', 'Buscar referencias'], ['Redactor', 'Escribir el borrador'], ['Revisor', 'Revisar el resultado']].map(([name, task], i) => ({
