@@ -97,7 +97,9 @@ function applyLayout() {
   body.classList.toggle('left-side', cfg.side === 'left');
   gota.setSide(cfg.side === 'left' ? -1 : 1);
   if (cfg.theme === 'auto') delete root.dataset.theme; else root.dataset.theme = cfg.theme;
-  body.classList.toggle('glass', cfg.glass === 'glass');
+  // Glass (neutro) y Glass de color comparten el vidrio; el de color además lo tiñe con el de Astro.
+  body.classList.toggle('glass', cfg.glass === 'glass' || cfg.glass === 'tint');
+  body.classList.toggle('tint', cfg.glass === 'tint');
   for (const [id, key] of [['seg-side', 'side'], ['seg-theme', 'theme'], ['seg-glass', 'glass']]) {
     [...$(id).children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cfg[key])));
   }
