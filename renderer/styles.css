@@ -40,7 +40,15 @@ body.minimized .cloudslot{display:none}
 .clouds{display:flex;flex-direction:column;align-items:flex-end;gap:10px;
   max-height:calc(100vh - var(--char-h) + 40px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;
   padding:24px 14px 34px;margin:0 -14px;scrollbar-width:thin;
-  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 24px);mask-image:linear-gradient(to bottom,transparent 0,#000 24px)}
+  -webkit-mask-image:var(--fade);mask-image:var(--fade)}
+/* Desvanecido en los bordes de lo que se desplaza: solo en el borde que tiene más contenido detrás
+   (fade-top / fade-bottom los pone app.js), así lo que está al final se ve entero. */
+.clouds,.cloud.tasks{--ft:0px;--fb:0px;--fade:linear-gradient(to bottom,transparent 0,#000 var(--ft),#000 calc(100% - var(--fb)),transparent 100%)}
+.clouds.fade-top{--ft:56px}
+.clouds.fade-bottom{--fb:64px}
+.cloud.tasks{-webkit-mask-image:var(--fade);mask-image:var(--fade)}
+.cloud.tasks.fade-top{--ft:28px}
+.cloud.tasks.fade-bottom{--fb:32px}
 .clouds:empty{padding:0}
 body.left-side .clouds{align-items:flex-start}
 
