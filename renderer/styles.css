@@ -104,6 +104,13 @@ body.left-side .cloud.tail::after{right:auto;left:6px}
 .send{flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);cursor:pointer;display:grid;place-items:center}
 .btn{border:0;background:var(--accent);color:var(--on-accent);border-radius:999px;padding:7px 16px;font-weight:700;font-size:14px;cursor:pointer}
 .btn:disabled{opacity:.45}
+/* menú de comandos / */
+.cmds{flex:1 0 100%;max-height:236px;overflow-y:auto;margin:-2px 0 4px -8px;padding:4px;border:1px solid var(--hair);border-radius:14px;scrollbar-width:thin}
+.cmd{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:10px;width:100%;border:0;background:transparent;border-radius:10px;padding:6px 9px;cursor:pointer;text-align:left}
+.cmd.on,.cmd:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.cmd b{font-family:var(--mono);font-size:13px;font-weight:600;white-space:nowrap}
+.cmd span{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmd em{font-style:normal;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 /* captura adjunta a la pregunta */
 .att{flex:1 0 100%;display:flex;align-items:center;gap:10px;margin:0 0 2px;padding:6px;border:1px solid var(--hair);border-radius:14px}
 .att img{width:54px;height:38px;object-fit:cover;object-position:top;border-radius:8px;flex:none}
@@ -189,6 +196,10 @@ body.panel-open .panel{transform:none}
 .sheet code{font-family:var(--mono);font-size:.88em;background:color-mix(in srgb,var(--accent) 12%,transparent);padding:1px 5px;border-radius:4px}
 .sheet pre{margin:0 0 12px;background:var(--code);color:var(--codeink);padding:14px 18px;overflow-x:auto;font:13px/1.6 var(--mono);border-radius:8px;overflow-wrap:normal}
 .sheet pre code{background:none;padding:0;font-size:inherit;color:inherit}
+.sheet .tbl{overflow-x:auto;margin:0 0 12px}
+.sheet table{border-collapse:collapse;font-size:13px;min-width:60%}
+.sheet th,.sheet td{border-bottom:1px solid var(--hair);padding:5px 10px;text-align:left;white-space:nowrap}
+.sheet th{font-weight:700;color:var(--muted);font-size:12px}
 .sheet.codesheet{padding:0;overflow:hidden}
 .sheet.codesheet pre{border-radius:0;margin:0;padding:6px 18px 18px}
 .codebar{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--code);color:#9aa4b6;font-size:12.5px}

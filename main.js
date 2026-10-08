@@ -11,6 +11,7 @@ const { writeRuntimeInfo, removeRuntimeInfo } = require('./src/runtime-info');
 const { makeIconPng } = require('./src/icon');
 const { createCaptureStore } = require('./src/captures');
 const { createPrefs } = require('./src/prefs');
+const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
 
@@ -38,7 +39,7 @@ const DEFAULTS = {
   permissionMode: 'default',
   notifyPort: 4545,
   warmPool: true,
-  idleMinutes: 10,
+  idleMinutes: 5,
 };
 
 // En desarrollo se usa astro.config.json del proyecto. En el ejecutable la carpeta de la app es de
@@ -80,6 +81,7 @@ let tray = null;
 const running = new Map(); // id de petición -> función para cancelarla
 const conversations = new Map(); // id de sesión de la interfaz -> proceso de Claude Code que la atiende
 const prefs = createPrefs(app.getPath('userData'));
+const commands = createCommandStore(app.getPath('userData'));
 
 /* ---------- capturas de pantalla ---------- */
 // Electron 44 tiene un portapapeles asíncrono al estilo de navigator.clipboard.
@@ -132,10 +134,13 @@ const baseOpts = () => ({
   idleMs: config.idleMinutes * 60 * 1000,
 });
 const askOpts = () => ({ ...baseOpts(), systemPrompt: ASTRO_RULES(config.workingDirectory), schema: ASTRO_SCHEMA });
-const askPool = createPool(() => createClaudeSession(askOpts()));
-const agentPool = createPool(() => createClaudeSession(baseOpts()));
+// Cada proceso de Claude Code ocupa ~400 MB, así que no se deja ninguno esperando "por si acaso":
+// se arranca cuando el usuario abre la pregunta (mientras escribe le da tiempo a arrancar) y, si al
+// final no se usa, se cierra a los pocos minutos.
+const SPARE_IDLE_MS = 3 * 60 * 1000;
+const askPool = createPool(() => createClaudeSession({ ...askOpts(), idleMs: SPARE_IDLE_MS }));
+const agentPool = createPool(() => createClaudeSession({ ...baseOpts(), idleMs: SPARE_IDLE_MS }));
 
-// Deja un proceso arrancado para la próxima conversación nueva.
 function prewarm(pool, n = 1) {
   if (!config.warmPool) return;
   try { pool.fill(n); } catch (e) { console.error('[astro] No pude precalentar Claude Code:', e.message); }
@@ -145,10 +150,18 @@ function conversationFor(conv, resume) {
   let s = conversations.get(conv);
   if (!s) {
     s = resume ? createClaudeSession({ ...askOpts(), resume }) : askPool.take();
+    s.setIdle(config.idleMinutes * 60 * 1000);
     conversations.set(conv, s);
-    setImmediate(() => prewarm(askPool));
   }
   return s;
+}
+
+// La interfaz avisa al abrir la pregunta: si la sesión ya tiene conversación, se despierta su proceso
+// (con --resume si se cerró por inactividad); si es nueva, se deja uno listo en el pool.
+function warmFor(conv) {
+  if (!config.warmPool) return;
+  const s = conversations.get(conv);
+  if (s) { if (!s.busy) s.warm(); } else prewarm(askPool);
 }
 function endConversation(conv) {
   const s = conversations.get(conv);
@@ -200,6 +213,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      spellcheck: false, // no carga diccionarios del corrector: menos memoria
     },
   });
   if (prefs.get().alwaysOnTop) win.setAlwaysOnTop(true, 'floating');
@@ -265,6 +279,7 @@ ipcMain.handle('config:get', () => ({
   model: config.model,
   user: os.userInfo().username,
   platform: process.platform,
+  commands: commands.get(),
   prefs: prefs.get(),
 }));
 ipcMain.on('prefs:set', (_e, { key, value }) => setPref(key, value));
@@ -281,7 +296,14 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId }
   }
   let handle;
   try {
-    handle = conversationFor(conv, resume).send(prompt, ev => send('claude:event', { id, ...ev }));
+    handle = conversationFor(conv, resume).send(prompt, ev => {
+      if (ev.type === 'start') {
+        // La lista de comandos / es grande: solo viaja a la interfaz si cambió.
+        if (commands.update(ev)) send('astro:commands', commands.get());
+        ev = { type: 'start', sessionId: ev.sessionId };
+      }
+      send('claude:event', { id, ...ev });
+    });
   } catch (e) {
     return { ok: false, code: e.code || 'not_found', message: e.message };
   }
@@ -306,6 +328,7 @@ ipcMain.on('claude:cancel', (_e, id) => {
   if (cancel) cancel();
 });
 ipcMain.on('claude:end', (_e, conv) => endConversation(conv));
+ipcMain.on('claude:prewarm', (_e, conv) => warmFor(conv));
 
 /* ---------- arranque ---------- */
 app.on('second-instance', summon);
@@ -335,7 +358,6 @@ app.whenReady().then(() => {
     if (process.env.ASTRO_DEBUG) console.log('[astro] Carpeta de capturas:', dir || '(no encontrada; solo portapapeles)');
     captures.setFolder(dir);
   });
-  prewarm(askPool);
 });
 
 app.on('will-quit', () => {

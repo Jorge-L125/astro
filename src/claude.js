@@ -96,7 +96,14 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
     let ev;
     try { ev = JSON.parse(line); } catch { return; }
     if (ev.type === 'system' && ev.subtype === 'init') {
-      turn.onEvent({ type: 'start', sessionId: ev.session_id });
+      turn.onEvent({
+        type: 'start',
+        sessionId: ev.session_id,
+        // Comandos / disponibles: los de serie, los de skills y los de plugins.
+        slashCommands: ev.slash_commands || [],
+        skills: ev.skills || [],
+        terminalCommands: ev.terminal_slash_commands || [],
+      });
     } else if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
       for (const part of ev.message.content) {
         if (part.type === 'text' && part.text) turn.onEvent({ type: 'text', text: part.text });
@@ -111,6 +118,8 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       if (ev.session_id) sessionId = ev.session_id;
       armIdle();
       if (ev.is_error) return t.reject(fail('failed', String(ev.result || ev.subtype || 'error')));
+      // `/model x` cambia el modelo solo en este proceso: se recuerda para cuando haya que relanzarlo.
+      if (t.model) argOpts.model = t.model;
       t.resolve({
         text: typeof ev.result === 'string' ? ev.result : '',
         structured: ev.structured_output || null,
@@ -164,6 +173,10 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
     get busy() { return !!turn; },
     get alive() { return !!proc; },
     get pid() { return proc ? proc.child.pid : null; },
+    get model() { return argOpts.model; },
+
+    /** Cambia cuánto espera sin uso antes de cerrar el proceso (cada uno ocupa ~400 MB). */
+    setIdle(ms) { idleMs = ms; if (proc && !turn) armIdle(); return this; },
 
     /** Arranca el proceso sin enviarle nada, para que el primer turno no espere al CLI. */
     warm() {
@@ -180,6 +193,8 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       try { if (!proc) proc = spawnProc(); } catch (e) { return rejected(fail('not_found', e.message)); }
       let t;
       const done = new Promise((resolve, reject) => { t = { resolve, reject, onEvent }; });
+      const switchTo = typeof text === 'string' && /^\/model\s+(\S+)/.exec(text.trim());
+      if (switchTo) t.model = switchTo[1];
       turn = t;
       // Texto o bloques de contenido de la API (p. ej. una imagen seguida de la pregunta).
       const content = Array.isArray(text) ? text : String(text);

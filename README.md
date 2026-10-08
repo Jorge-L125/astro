@@ -22,7 +22,18 @@ Astro abre una sola vez: si ya está abierto y lo vuelves a lanzar (otra vez el 
 - **Gestos:** arrastrar la gota la hace girar; mantener pulsado = mimos; varios clics seguidos la marean. Si pasa 1 minuto sin actividad, se duerme.
 - **Minimizar:** botón de gota en la barra (al pasar el ratón) o menú de la bandeja. Clic en la gota para que vuelva.
 
-La primera respuesta de cada sesión llega antes porque Astro deja un proceso de Claude Code arrancado de antemano, y las siguientes reutilizan el mismo proceso en lugar de lanzar el CLI cada vez.
+Cada sesión reutiliza un mismo proceso de Claude Code en lugar de lanzar el CLI en cada pregunta. Como cada proceso ocupa unos 400 MB, Astro no deja ninguno esperando: lo arranca al abrir la pregunta (mientras escribes) y lo cierra tras unos minutos sin uso; la conversación se reanuda sola.
+
+## Comandos /
+
+Escribe `/` en la pregunta para ver los comandos de Claude Code: los de serie (`/context`, `/usage`, `/compact`, `/model`…), tus skills y los de tus plugins. Flechas para elegir, Tab o Enter para completar, Esc para cerrar el menú.
+
+- **`/clear`** lo hace Astro: reinicia la conversación de la sesión.
+- **Informes** como `/context` o `/usage`: resumen en la nube y el informe completo en las hojas.
+- **`/model sonnet|opus|haiku`** cambia el modelo solo para esa sesión.
+- **Skills y comandos de plugins** responden como una pregunta normal.
+
+La lista sale de lo que anuncia Claude Code y se actualiza sola. Se ocultan los que solo tienen sentido en la terminal, los de pago (`/ultrareview`) y los que crean tareas recurrentes (`/loop`, `/schedule`).
 
 ## Compilar un ejecutable
 
@@ -95,8 +106,8 @@ Para distribuirlo como `.app` hay que empaquetarlo en un Mac (por ejemplo con el
 | `allowedTools` | Herramientas que Claude Code puede usar sin preguntar. Por defecto solo lectura y web. Añade `Edit`, `Write` o `Bash` si quieres que Astro cambie archivos o ejecute comandos. |
 | `permissionMode` | Modo de permisos de Claude Code (`default`, `acceptEdits`, `plan`…). |
 | `notifyPort` | Puerto local donde Astro recibe avisos de otras sesiones. |
-| `warmPool` | Deja procesos de Claude Code arrancados de antemano para que la primera respuesta no espere al CLI. |
-| `idleMinutes` | Minutos sin uso tras los que se cierra el proceso de una sesión (la conversación se reanuda sola después). |
+| `warmPool` | Arranca Claude Code al abrir la pregunta, mientras escribes, para que la respuesta no espere al CLI. |
+| `idleMinutes` | Minutos sin uso tras los que se cierra el proceso de una sesión (por defecto 5; la conversación se reanuda sola después). Cada proceso ocupa unos 400 MB. |
 
 En el ejecutable instalado, este archivo está en `%APPDATA%\Astro\astro.config.json` (bandeja → *Abrir configuración*). Reinicia Astro tras cambiar la configuración.
 
@@ -140,6 +151,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/claude-bin.js` — localiza el ejecutable de Claude Code (`.exe`, `.cmd` de npm, Homebrew, `~/.local/bin`…).
 - `src/shell-path.js` — PATH del shell de login en macOS.
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.
+- `src/commands.js` + `renderer/slash.js` — comandos / (qué se muestra, menú y respuestas).
 - `src/captures.js` + `src/screenshot-dir.js` — detección de capturas de pantalla (carpeta del sistema y portapapeles).
 - `src/prefs.js` — preferencias que se cambian desde la app (siempre encima, detectar capturas).
 - `src/notify-server.js` + `src/runtime-info.js` + `hooks/astro-notify.js` — avisos de otras sesiones.

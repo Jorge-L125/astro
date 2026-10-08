@@ -1,6 +1,7 @@
 import { createGota } from './gota.js';
 import { esc, inline, md, buildSheets } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
+import { parseSlash, suggest, commandReply } from './slash.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -206,8 +207,13 @@ function openAsk() {
   askEl.classList.remove('old');
   askEl.innerHTML = '<textarea rows="1" aria-label="Tu pregunta" placeholder="¿En qué te ayudo?"></textarea><button class="send" aria-label="Enviar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
   const ta = askEl.querySelector('textarea'), b = askEl.querySelector('.send');
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.react('curious', 800); });
+  // Mientras se escribe, Claude Code arranca (o despierta) para que la respuesta no espere al CLI.
+  api.prewarm(active.id);
+  const menu = commandMenu(ta);
+  askEl.prepend(menu.el);
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.react('curious', 800); menu.update(); });
   ta.addEventListener('keydown', e => {
+    if (menu.handleKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
     if (e.key === 'Escape') { closeAsk(); api.blur(); }
   });
@@ -221,6 +227,65 @@ function openAsk() {
   renderAttachment();
   ta.focus();
 }
+/* ---------- comandos / ---------- */
+// La lista llega del proceso principal (lo que anuncia Claude Code) y se actualiza sola.
+let commands = [];
+api.on('astro:commands', list => { commands = Array.isArray(list) ? list : commands; });
+const KIND_LABEL = { local: 'Astro', info: 'Info', task: 'Tarea', skill: 'Skill' };
+
+function commandMenu(ta) {
+  const el = document.createElement('div');
+  el.className = 'cmds';
+  el.setAttribute('role', 'listbox');
+  el.hidden = true;
+  let items = [], sel = 0;
+  const pick = c => {
+    ta.value = '/' + c.name + ' ';
+    el.hidden = true;
+    ta.focus();
+    ta.dispatchEvent(new Event('input'));
+  };
+  const render = () => {
+    el.innerHTML = '';
+    items.forEach((c, i) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'cmd' + (i === sel ? ' on' : '');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', String(i === sel));
+      row.innerHTML = '<b></b><span></span><em></em>';
+      row.querySelector('b').textContent = '/' + c.name;
+      row.querySelector('span').textContent = c.arg ? c.desc + ' (' + c.arg + ')' : c.desc;
+      row.querySelector('em').textContent = KIND_LABEL[c.kind] || '';
+      row.onmousedown = e => { e.preventDefault(); pick(c); };
+      el.append(row);
+    });
+    el.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+  };
+  return {
+    el,
+    update() {
+      items = suggest(commands, ta.value);
+      sel = 0;
+      el.hidden = !items.length;
+      if (items.length) render();
+    },
+    // Devuelve true si la tecla era para el menú.
+    handleKey(e) {
+      if (el.hidden) return false;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        render();
+        return true;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(items[sel]); return true; }
+      if (e.key === 'Escape') { e.preventDefault(); el.hidden = true; return true; }
+      return false;
+    },
+  };
+}
+
 // Cerrar la pregunta sin enviarla descarta la captura adjunta.
 function closeAsk() { if (askEl) askEl.remove(); askEl = null; detachCapture(); }
 
@@ -519,13 +584,19 @@ function maybeRename(s, text) {
   if (name) { s.name = name.length > 22 ? name.slice(0, 21) + '…' : name; renderSessions(); }
 }
 
+// Datos de Astro si la respuesta trae el formato esperado; null si no (p. ej. la salida de un comando).
+function softData(r) { try { return validData(r); } catch { return null; } }
+
 async function ask(s, text, capture = null) {
   if (s.busy) return;
+  const cmd = capture ? null : parseSlash(text);
+  // /clear lo hace Astro: reinicia la sesión con su animación, sin llamar a Claude.
+  if (cmd && cmd.name === 'clear') { if (s === active) closeAsk(); resetConversation(s); return; }
   setBusy(s, true);
   s.stopped = false;
   if (s === active) { closeAsk(); closePanel(); }
   clearClouds(s); clearAgents(s);
-  maybeRename(s, text);
+  if (!cmd) maybeRename(s, text);
   const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = text;
   if (capture) { const img = document.createElement('img'); img.className = 'shot'; img.alt = 'Captura adjunta'; img.src = capture.thumb; you.prepend(img); }
   s.clouds.append(you);
@@ -535,7 +606,8 @@ async function ask(s, text, capture = null) {
   try {
     let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t));
     s.claudeId = r.sessionId || s.claudeId;
-    data = validData(r);
+    // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
+    data = cmd ? softData(r) || commandReply(cmd.name, r.text) : validData(r);
     denials = r.denials || [];
     s.history.push({ role: 'bot', data });
     if (Array.isArray(data.delegate) && data.delegate.length) {
@@ -738,6 +810,7 @@ applyAccent();
 applyLayout();
 api.config().then(c => {
   showPrefs(c.prefs);
+  if (Array.isArray(c.commands)) commands = c.commands;
   $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b></b> nueva · <b></b> cambiar`;
   const bs = $('info').querySelectorAll('b');
   const shortcut = formatAccel(c.shortcut);
