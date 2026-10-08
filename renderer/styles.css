@@ -99,8 +99,24 @@ body.left-side .cloud.tail::after{right:auto;left:6px}
 .choice .row{display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:10px}
 .choice small{color:var(--muted);font-size:12px}
 .ask{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;padding:10px 10px 10px 18px;width:380px;max-width:100%}
-.ask textarea{flex:1;min-width:0;border:0;background:transparent;resize:none;font:inherit;font-size:15px;color:var(--ink);outline:none;max-height:160px;padding:6px 0;overflow-y:auto}
+.ask textarea{flex:1 1 160px;min-width:0;border:0;background:transparent;resize:none;font:inherit;font-size:15px;color:var(--ink);outline:none;max-height:160px;padding:6px 0;overflow-y:auto}
 .ask textarea::placeholder{color:var(--muted)}
+
+/* confirmación (p. ej. antes de reiniciar) */
+.cloud.confirm{padding:16px 16px 12px;width:340px;max-width:100%}
+.cloud.confirm h3{margin:0 0 4px;font-size:15px;font-weight:700}
+.cloud.confirm p{margin:0;font-size:13.5px;color:var(--muted)}
+.cloud.confirm .row{display:flex;gap:8px;margin-top:12px}
+
+/* lista de conversaciones para retomar */
+.pbody-wrap .muted{color:var(--muted);margin:0}
+.pbody-wrap .search{width:100%;border:1px solid var(--hair);background:var(--sheet);color:var(--ink);border-radius:999px;padding:9px 16px;font:inherit;font-size:14px;outline:none}
+.pbody-wrap .search:focus{border-color:var(--accent)}
+.convos{display:flex;flex-direction:column;gap:8px}
+.convo{display:block;width:100%;text-align:left;border:1px solid var(--hair);background:var(--sheet);border-radius:12px;padding:12px 14px;cursor:pointer;min-width:0}
+.convo:hover{border-color:var(--accent)}
+.convo b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.convo small{display:block;font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .send{flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);cursor:pointer;display:grid;place-items:center}
 .btn{border:0;background:var(--accent);color:var(--on-accent);border-radius:999px;padding:7px 16px;font-weight:700;font-size:14px;cursor:pointer}
 .btn:disabled{opacity:.45}
@@ -236,5 +252,35 @@ body.left-side .settings{right:auto;left:calc(var(--char-w) - 10px);transform-or
 .toggle[aria-checked="true"] i::after{transform:translateX(15px)}
 .quit{width:100%;border:1px solid var(--hair);background:transparent;border-radius:999px;padding:8px;font-size:13px;cursor:pointer;color:var(--muted)}
 .quit:hover{color:var(--ink);border-color:var(--ink)}
+
+.accs{display:flex;gap:4px;justify-content:space-between}
+.accs button{flex:1 1 0;min-width:0;aspect-ratio:1;max-width:36px;padding:0;border:1px solid var(--hair);background:transparent;border-radius:10px;font-size:18px;line-height:1;display:grid;place-items:center;cursor:pointer;transition:background .15s,transform .15s}
+.accs button:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.accs button:active{transform:scale(.96)}
+.accs button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+
+/* ---------- cajas de vidrio ----------
+   La ventana es transparente: el escritorio de detrás no se puede desenfocar, así que el vidrio
+   deja pasar un poco de luz y se marca con reflejos en el borde, sin perder legibilidad.
+   Ajustes queda sólido: se abre encima de las nubes y su texto no debe mezclarse con ellas. */
+:root{--glass:rgba(255,255,255,.74);--glass-strong:rgba(255,255,255,.86);--glass-edge:rgba(255,255,255,.85);--glass-lit:rgba(255,255,255,.95)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--glass:rgba(37,43,56,.76);--glass-strong:rgba(29,34,45,.88);--glass-edge:rgba(255,255,255,.16);--glass-lit:rgba(255,255,255,.22)}}
+:root[data-theme="dark"]{--glass:rgba(37,43,56,.76);--glass-strong:rgba(29,34,45,.88);--glass-edge:rgba(255,255,255,.16);--glass-lit:rgba(255,255,255,.22)}
+body.glass .cloud:not(.you),body.glass .cloud.tail:not(.you)::before,body.glass .cloud.tail:not(.you)::after,
+body.glass .sheets .lbl,body.glass .minib,body.glass .sch:not(.on){
+  background:linear-gradient(135deg,var(--glass) 0%,color-mix(in srgb,var(--glass) 82%,transparent) 60%,var(--glass) 100%);
+  -webkit-backdrop-filter:blur(14px) saturate(1.6);backdrop-filter:blur(14px) saturate(1.6);
+  border:1px solid var(--glass-edge);
+  box-shadow:inset 1.5px 1.5px 0 var(--glass-lit),inset 0 0 14px color-mix(in srgb,var(--glass-lit) 30%,transparent),var(--shadow)}
+body.glass .cloud.tail:not(.you)::before,body.glass .cloud.tail:not(.you)::after{border:0}
+body.glass .cloud.notify{border:2px solid var(--accent)}
+body.glass .cloud.you{background:color-mix(in srgb,var(--accent) 84%,transparent);
+  box-shadow:inset 1.5px 1.5px 0 rgba(255,255,255,.35),inset 0 0 12px rgba(255,255,255,.12),var(--shadow)}
+body.glass .toolbar{background:var(--glass-strong);
+  -webkit-backdrop-filter:blur(22px) saturate(1.8);backdrop-filter:blur(22px) saturate(1.8);
+  border:1px solid var(--glass-edge);box-shadow:inset 0 1px 0 var(--glass-lit),var(--shadow)}
+body.glass .panel{background:var(--glass-strong);-webkit-backdrop-filter:blur(22px) saturate(1.8);backdrop-filter:blur(22px) saturate(1.8);
+  border-left:1px solid var(--glass-edge)}
+body.glass .pbody-wrap{background:transparent}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

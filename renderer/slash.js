@@ -16,7 +16,10 @@ export function suggest(list, text, max = 8) {
   // Para skills con prefijo ("anthropic-skills:pdf"), también vale lo que va tras los dos puntos.
   const inside = list.filter(c => !starts.includes(c) && c.name.toLowerCase().split(':').pop().startsWith(q));
   const contains = q ? list.filter(c => !starts.includes(c) && !inside.includes(c) && c.name.toLowerCase().includes(q)) : [];
-  return [...starts, ...inside, ...contains].slice(0, max);
+  // Por descripción solo con 3 letras o más: con menos coincidiría casi todo.
+  const seen = new Set([...starts, ...inside, ...contains]);
+  const byDesc = q.length >= 3 ? list.filter(c => !seen.has(c) && (c.desc || '').toLowerCase().includes(q)) : [];
+  return [...starts, ...inside, ...contains, ...byDesc].slice(0, max);
 }
 
 // Primera frase legible de un texto en markdown, para la nube.
@@ -40,4 +43,12 @@ export function commandReply(name, text) {
   // El texto completo va a las hojas si aporta algo más que la nube.
   const detail = body && body.replace(/\s+/g, ' ') !== lines[0] ? body : null;
   return { mood: 'happy', title: `/${name}`, lines, detail };
+}
+
+/** Respuesta en texto plano (sin el formato de Astro): primera línea en la nube y el resto en hojas. */
+export function plainReply(text, title = 'Respuesta de Claude') {
+  const body = String(text || '').trim();
+  const line = firstLine(body) || body.slice(0, 140);
+  const detail = body.replace(/\s+/g, ' ') !== line ? body : null;
+  return { mood: 'neutral', title, lines: [line], detail, code: null, choice: null, delegate: null };
 }

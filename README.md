@@ -26,9 +26,10 @@ Cada sesión reutiliza un mismo proceso de Claude Code en lugar de lanzar el CLI
 
 ## Comandos /
 
-Escribe `/` en la pregunta para ver los comandos de Claude Code: los de serie (`/context`, `/usage`, `/compact`, `/model`…), tus skills y los de tus plugins. Flechas para elegir, Tab o Enter para completar, Esc para cerrar el menú.
+Escribe `/` en la pregunta para ver los comandos de Claude Code: los de serie (`/context`, `/usage`, `/compact`, `/model`…), tus skills y los de tus plugins, con su descripción (la de cada skill se lee de su archivo). También busca por la descripción a partir de 3 letras. Flechas para elegir, Tab o Enter para completar, Esc para cerrar el menú.
 
-- **`/clear`** lo hace Astro: reinicia la conversación de la sesión.
+- **`/clear`** lo hace Astro (también el botón ↻): pide confirmación antes de empezar de cero. La conversación no se borra: queda guardada y se puede retomar con `/resume`.
+- **`/resume`** lo hace Astro (también el botón del reloj o «Retomar una conversación…» en la bandeja): lista las conversaciones guardadas de la carpeta de trabajo, de Astro y de la terminal, y retoma la que elijas en la sesión activa, mostrando tu última pregunta y la última respuesta.
 - **Informes** como `/context` o `/usage`: resumen en la nube y el informe completo en las hojas.
 - **`/model sonnet|opus|haiku`** cambia el modelo solo para esa sesión.
 - **Skills y comandos de plugins** responden como una pregunta normal.
@@ -61,7 +62,7 @@ Cada sesión es una conversación independiente con Claude Code: tiene su color,
 - **Cambiar:** clic en una gota pequeña de atrás, en su chip (al pasar el ratón sobre Astro) o `Alt+1…6`.
 - **Avisos:** si una sesión de atrás termina, su gota salta y muestra un globo («Sesión · Listo / Error / Pregunta»). Clic en el globo para traerla al frente.
 - **Nombre:** la primera pregunta de una sesión nueva le da nombre.
-- **Reiniciar:** botón ↻ de la barra o menú de la bandeja; empieza la conversación de cero.
+- **Reiniciar:** botón ↻ de la barra o menú de la bandeja; pide confirmación y empieza la conversación de cero.
 - **Cerrar:** `×` en su chip; la gota vuelve y se funde con la principal.
 
 ## Ayudantes
@@ -79,10 +80,26 @@ Astro detecta las capturas por dos vías: la carpeta donde el sistema las guarda
 Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
 
 - **Color de esta sesión**, **posición** (izquierda o derecha) y **tema** (automático, claro u oscuro).
+- **Accesorio:** gorro de Navidad, manta de fantasma, capa de vampiro, sombrero de bruja, de fiesta o de vaquero. Cada uno tiene su reacción; las puntas de los gorros se balancean al moverse.
+- **Cajas:** *Glass* (por defecto) hace las nubes, la barra y el panel lateral translúcidos con reflejos en el borde; *Sólido* las deja opacas. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás. El panel de Ajustes siempre es sólido.
 - **Siempre encima de las ventanas:** por defecto Astro flota sobre todo. Si lo apagas, queda detrás de las ventanas que uses y vuelve al frente al llamarlo o al detectar una captura.
 - **Detectar capturas de pantalla.**
 
 Las dos últimas también están en el menú de la bandeja, y todos los ajustes se recuerdan entre arranques.
+
+## Actitudes
+
+| Situación | Reacción |
+|---|---|
+| 20 s sin actividad cerca | Se aburre: mira a los lados y dice «¿Hacemos algo?» |
+| 5 s antes de dormirse | Bosteza |
+| Ratón encima más de 3,5 s | Se pone tímido y aparta la mirada |
+| Seleccionar texto en las nubes o en las hojas | Lo mira; si es en las hojas, lo comenta |
+| Scroll | Sigue el desplazamiento con la mirada; si es muy rápido, se marea |
+| Tres vueltas con el ratón alrededor | Se marea |
+| Escribir muy rápido | Se emociona |
+| Un cumplido corto («eres lindo», «te quiero») | Ojos de corazón; al tercero presume |
+| Volver al computador tras 5 min sin usarlo | «¡Volviste! Te extrañé» |
 
 ## macOS
 

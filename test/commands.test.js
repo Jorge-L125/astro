@@ -14,8 +14,8 @@ const ANNOUNCED = {
 
 test('muestra los útiles, ordenados por tipo, y oculta los de pago, recurrentes o de terminal', () => {
   const list = buildCommandList(ANNOUNCED);
-  assert.deepEqual(list.map(c => c.name), ['clear', 'context', 'model', 'anthropic-skills:pdf', 'code-review', 'mi-skill']);
-  assert.deepEqual(list.map(c => c.kind), ['local', 'info', 'task', 'skill', 'skill', 'skill']);
+  assert.deepEqual(list.map(c => c.name), ['clear', 'resume', 'context', 'model', 'anthropic-skills:pdf', 'code-review', 'mi-skill']);
+  assert.deepEqual(list.map(c => c.kind), ['local', 'local', 'info', 'task', 'skill', 'skill', 'skill']);
 });
 
 test('describe en español los conocidos y marca los argumentos', () => {
@@ -39,4 +39,19 @@ test('el almacén arranca con los de serie y recuerda la última lista entre arr
   assert.equal(a.update(ANNOUNCED), true);
   assert.equal(a.update(ANNOUNCED), false, 'sin cambios no se reescribe');
   assert.deepEqual(createCommandStore(dir).get().map(c => c.name), buildCommandList(ANNOUNCED).map(c => c.name));
+});
+
+test('los de Astro (/clear y /resume) están aunque Claude no los anuncie', () => {
+  const list = buildCommandList({ slashCommands: ['context'] });
+  assert.deepEqual(list.filter(c => c.kind === 'local').map(c => c.name), ['clear', 'resume']);
+});
+
+test('usa la descripción real de skills y comandos propios', () => {
+  const desc = new Map([['mi-skill', 'Hace mi cosa'], ['commit', 'Crea un commit'], ['brainstorming', 'Lluvia de ideas']]);
+  const list = buildCommandList({ slashCommands: ['mi-skill', 'commit', 'superpowers:brainstorming', 'code-review'], skills: ['mi-skill', 'code-review'] }, desc);
+  const by = Object.fromEntries(list.map(c => [c.name, c.desc]));
+  assert.equal(by['mi-skill'], 'Hace mi cosa');
+  assert.equal(by.commit, 'Crea un commit', 'un comando propio con descripción se muestra');
+  assert.equal(by['superpowers:brainstorming'], 'Lluvia de ideas', 'los de plugin usan su nombre corto');
+  assert.equal(by['code-review'], 'Revisa los cambios buscando errores', 'la descripción en español manda');
 });
