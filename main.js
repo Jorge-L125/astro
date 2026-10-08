@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -41,9 +41,33 @@ const DEFAULTS = {
   idleMinutes: 10,
 };
 
+// En desarrollo se usa astro.config.json del proyecto. En el ejecutable la carpeta de la app es de
+// solo lectura (va dentro de app.asar): la configuración vive en la carpeta de datos del usuario
+// (%APPDATA%\Astro en Windows) y se crea con los valores por defecto en el primer arranque.
+function configFile() {
+  const bundled = path.join(__dirname, 'astro.config.json');
+  if (!app.isPackaged) return bundled;
+  const file = path.join(app.getPath('userData'), 'astro.config.json');
+  if (!fs.existsSync(file)) {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.copyFileSync(bundled, file);
+    } catch (e) {
+      console.error('[astro] No pude crear la configuración:', e.message);
+    }
+  }
+  return file;
+}
+const CONFIG_FILE = configFile();
+
+// El hook lo ejecuta un `node` externo, que no puede leer dentro de app.asar: en el ejecutable
+// va desempaquetado en app.asar.unpacked (ver "asarUnpack" en package.json).
+const HOOK_FILE = path.join(__dirname.replace(/app\.asar$/, 'app.asar.unpacked'), 'hooks', 'astro-notify.js');
+const hookCommand = () => `node "${HOOK_FILE.split(path.sep).join('/')}"`;
+
 function loadConfig() {
   let user = {};
-  try { user = JSON.parse(fs.readFileSync(path.join(__dirname, 'astro.config.json'), 'utf8')); }
+  try { user = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); }
   catch (e) { if (e.code !== 'ENOENT') console.error('[astro] astro.config.json inválido:', e.message); }
   const cfg = { ...DEFAULTS, ...user };
   if (!cfg.workingDirectory) cfg.workingDirectory = os.homedir();
@@ -214,6 +238,9 @@ function buildTrayMenu() {
     { type: 'separator' },
     { label: 'Siempre encima', type: 'checkbox', checked: p.alwaysOnTop, click: i => setPref('alwaysOnTop', i.checked) },
     { label: 'Detectar capturas de pantalla', type: 'checkbox', checked: p.watchCaptures, click: i => setPref('watchCaptures', i.checked) },
+    { type: 'separator' },
+    { label: 'Abrir configuración', click: () => shell.openPath(CONFIG_FILE) },
+    { label: 'Copiar comando de avisos (hooks)', click: () => clipboard.writeText(hookCommand()) },
     { type: 'separator' },
     { label: 'Salir', click: () => app.quit() },
   ]));

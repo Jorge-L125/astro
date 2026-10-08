@@ -24,6 +24,24 @@ Astro abre una sola vez: si ya está abierto y lo vuelves a lanzar (otra vez el 
 
 La primera respuesta de cada sesión llega antes porque Astro deja un proceso de Claude Code arrancado de antemano, y las siguientes reutilizan el mismo proceso en lugar de lanzar el CLI cada vez.
 
+## Compilar un ejecutable
+
+```bash
+pnpm dist        # Windows: dist/Astro-Setup-<versión>.exe
+pnpm dist:mac    # macOS (hay que ejecutarlo en un Mac): dist/Astro-<versión>.dmg
+```
+
+El instalador de Windows se instala para el usuario actual en `%LOCALAPPDATA%\Programs\astro-bot`, sin pedir permisos de administrador, y crea accesos directos en el escritorio y en el menú Inicio. Pesa unos 100 MB porque lleva Electron (Chromium) dentro.
+
+En la versión instalada:
+
+- **Comando `astro`:** el instalador añade al PATH de tu usuario la carpeta `bin` de Astro (solo contiene `astro.cmd`), así que puedes abrirlo escribiendo `astro` en cualquier terminal nueva; si ya está abierto, se muestra. El desinstalador quita esa entrada y deja el resto del PATH como estaba.
+- **Configuración:** está en `%APPDATA%\Astro\astro.config.json` y se crea en el primer arranque. Se abre desde la bandeja con *Abrir configuración*.
+- **Avisos:** el comando del hook se copia desde la bandeja con *Copiar comando de avisos (hooks)*; pégalo en `~/.claude/settings.json` como se explica en [Avisos de tareas terminadas](#avisos-de-tareas-terminadas).
+- **Firma:** el instalador no está firmado, así que la primera vez Windows SmartScreen avisa de que es de un editor desconocido (*Más información → Ejecutar de todas formas*). Para quitar el aviso hace falta firmarlo con un certificado de firma de código.
+
+Para publicar una versión nueva, sube el número de `version` en `package.json` y vuelve a compilar.
+
 ## Sesiones
 
 Cada sesión es una conversación independiente con Claude Code: tiene su color, sus nubes, sus ayudantes y su historial. Una sesión puede seguir trabajando mientras está detrás.
@@ -80,7 +98,7 @@ Para distribuirlo como `.app` hay que empaquetarlo en un Mac (por ejemplo con el
 | `warmPool` | Deja procesos de Claude Code arrancados de antemano para que la primera respuesta no espere al CLI. |
 | `idleMinutes` | Minutos sin uso tras los que se cierra el proceso de una sesión (la conversación se reanuda sola después). |
 
-Reinicia Astro tras cambiar la configuración.
+En el ejecutable instalado, este archivo está en `%APPDATA%\Astro\astro.config.json` (bandeja → *Abrir configuración*). Reinicia Astro tras cambiar la configuración.
 
 ## Avisos de tareas terminadas
 
@@ -99,7 +117,7 @@ Para que Astro te avise cuando **cualquier** sesión de Claude Code termina o ne
 }
 ```
 
-Sustituye `<RUTA-DE-ASTRO>` por la carpeta de este proyecto (con `/`). El hook no necesita más configuración: al arrancar, Astro guarda el puerto y un token que cambia en cada arranque en `~/.astro/notify.json`, y el hook los lee de ahí. Si Astro no está abierto, el hook no hace nada.
+Sustituye `<RUTA-DE-ASTRO>` por la carpeta de este proyecto (con `/`). Con Astro instalado, usa el menú de la bandeja *Copiar comando de avisos (hooks)*, que ya trae la ruta correcta. El hook no necesita más configuración: al arrancar, Astro guarda el puerto y un token que cambia en cada arranque en `~/.astro/notify.json`, y el hook los lee de ahí. Si Astro no está abierto, el hook no hace nada.
 
 Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 
@@ -110,6 +128,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 | `pnpm test` | Pruebas con `node --test`. No llaman a Claude: usan un `claude` falso (`test/fixtures/fake-claude.js`). |
 | `pnpm lint` / `pnpm lint:fix` | Revisa (y corrige lo automático) con ESLint. |
 | `pnpm check` | Lint y pruebas, lo mismo que la CI de GitHub en Windows, macOS y Linux. |
+| `pnpm dist` | Compila el instalador de Windows en `dist/` (ver [Compilar un ejecutable](#compilar-un-ejecutable)). |
 
 **Modo de prueba:** `ASTRO_DEBUG=1 pnpm start` muestra los mensajes de la interfaz en la terminal y expone `astroDebug` en la consola de la ventana (`newSession()`, `fakeAgents(conError, indiceSesion)`, `say(texto)`, `thinking(estado)`) para ensayar animaciones sin gastar llamadas a Claude. `ASTRO_SCREENSHOTS_DIR=<carpeta>` cambia la carpeta de capturas vigilada.
 
