@@ -17,7 +17,7 @@ test('mantiene el mismo proceso entre turnos', async t => {
   assert.equal(a.structured.pid, b.structured.pid, 'el segundo turno no debe relanzar el CLI');
   assert.equal(b.structured.turn, 2);
   assert.equal(b.sessionId, a.sessionId);
-  assert.deepEqual(a.denials, ['Bash']);
+  assert.deepEqual(a.denials, [{ tool: 'Bash', input: {} }]);
 });
 
 test('envía bloques de contenido (imagen + texto) tal cual', async t => {

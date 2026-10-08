@@ -77,6 +77,7 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
   let sessionId = resume;
   let closed = false;
   let idleTimer = null;
+  let restartAfterTurn = false; // cambiaron las herramientas mientras respondía
 
   function clearIdle() { clearTimeout(idleTimer); idleTimer = null; }
   function armIdle() {
@@ -117,6 +118,8 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       p.gotResult = true;
       if (ev.session_id) sessionId = ev.session_id;
       armIdle();
+      // Herramientas nuevas: el proceso se relanza (con --resume) en el siguiente turno.
+      if (restartAfterTurn) { restartAfterTurn = false; setImmediate(stop); }
       if (ev.is_error) return t.reject(fail('failed', String(ev.result || ev.subtype || 'error')));
       // `/model x` cambia el modelo solo en este proceso: se recuerda para cuando haya que relanzarlo.
       if (t.model) argOpts.model = t.model;
@@ -124,7 +127,8 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
         text: typeof ev.result === 'string' ? ev.result : '',
         structured: ev.structured_output || null,
         sessionId,
-        denials: (ev.permission_denials || []).map(d => d.tool_name).filter(Boolean),
+        // Qué herramienta pidió Claude y con qué (archivo, comando…), para poder preguntar al usuario.
+        denials: (ev.permission_denials || []).filter(d => d && d.tool_name).map(d => ({ tool: d.tool_name, input: d.tool_input || {} })),
       });
     }
   }
@@ -174,6 +178,16 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
     get alive() { return !!proc; },
     get pid() { return proc ? proc.child.pid : null; },
     get model() { return argOpts.model; },
+
+    /**
+     * Cambia las herramientas permitidas. El CLI las recibe al arrancar, así que el proceso se relanza
+     * con --resume: la conversación sigue igual.
+     */
+    setTools(list) {
+      argOpts.allowedTools = [...list];
+      if (turn) restartAfterTurn = true; else stop();
+      return this;
+    },
 
     /** Cambia cuánto espera sin uso antes de cerrar el proceso (cada uno ocupa ~400 MB). */
     setIdle(ms) { idleMs = ms; if (proc && !turn) armIdle(); return this; },

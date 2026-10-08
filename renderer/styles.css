@@ -102,6 +102,35 @@ body.left-side .cloud.tail::after{right:auto;left:6px}
 .ask textarea{flex:1 1 160px;min-width:0;border:0;background:transparent;resize:none;font:inherit;font-size:15px;color:var(--ink);outline:none;max-height:160px;padding:6px 0;overflow-y:auto}
 .ask textarea::placeholder{color:var(--muted)}
 
+/* carpeta de trabajo de la sesión, arriba de la pregunta */
+.ask .folder{position:relative;flex:1 0 100%;margin:0 0 -2px -8px}
+.fbtn{display:inline-flex;align-items:center;gap:5px;max-width:100%;border:0;background:transparent;border-radius:999px;padding:2px 8px;font-size:12px;color:var(--muted);cursor:pointer}
+.fbtn:hover{background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--ink)}
+.fbtn .nm{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.fmenu{display:flex;flex-direction:column;gap:1px;margin:4px 0 6px;padding:4px;border:1px solid var(--hair);border-radius:12px}
+.fmenu button{border:0;background:transparent;border-radius:8px;padding:6px 9px;font-size:13px;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fmenu button:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+
+/* permiso para una herramienta */
+.cloud.perm{padding:16px 16px 12px;width:360px;max-width:100%}
+.cloud.perm.risky{border:2px solid color-mix(in srgb,var(--err) 55%,transparent)}
+.cloud.perm h3{margin:0 0 8px;font-size:15px;font-weight:700}
+.cloud.perm ul{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:6px}
+.cloud.perm li{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;min-width:0}
+.cloud.perm li .ico{flex:none}
+.cloud.perm li span:last-child{min-width:0}
+.cloud.perm li b{font-weight:600;margin-right:6px}
+.cloud.perm li code{font-family:var(--mono);font-size:12px;background:color-mix(in srgb,var(--ink) 7%,transparent);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+.cloud.perm li code:empty{display:none}
+.cloud.perm li small{color:var(--muted);margin-left:6px}
+.cloud.perm p{margin:0;font-size:12.5px;color:var(--muted)}
+.cloud.perm .row{display:flex;gap:8px;margin-top:12px}
+.tools{display:flex;flex-wrap:wrap;gap:6px;font-size:12.5px;color:var(--muted)}
+.tool{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hair);background:transparent;border-radius:999px;padding:3px 6px 3px 10px;font-family:var(--mono);font-size:12px;color:var(--ink);cursor:pointer}
+.tool i{font-style:normal;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.tool:hover{border-color:var(--err)}
+.tool:hover i{color:var(--err)}
+
 /* confirmación (p. ej. antes de reiniciar) */
 .cloud.confirm{padding:16px 16px 12px;width:340px;max-width:100%}
 .cloud.confirm h3{margin:0 0 4px;font-size:15px;font-weight:700}
@@ -274,6 +303,7 @@ body.glass .sheets .lbl,body.glass .minib,body.glass .sch:not(.on){
   box-shadow:inset 1.5px 1.5px 0 var(--glass-lit),inset 0 0 14px color-mix(in srgb,var(--glass-lit) 30%,transparent),var(--shadow)}
 body.glass .cloud.tail:not(.you)::before,body.glass .cloud.tail:not(.you)::after{border:0}
 body.glass .cloud.notify{border:2px solid var(--accent)}
+body.glass .cloud.perm.risky{border:2px solid color-mix(in srgb,var(--err) 55%,transparent)}
 body.glass .cloud.you{background:color-mix(in srgb,var(--accent) 84%,transparent);
   box-shadow:inset 1.5px 1.5px 0 rgba(255,255,255,.35),inset 0 0 12px rgba(255,255,255,.12),var(--shadow)}
 body.glass .toolbar{background:var(--glass-strong);
