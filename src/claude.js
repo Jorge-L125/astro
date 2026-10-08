@@ -11,13 +11,23 @@ function describeTool(name, input = {}) {
     case 'Grep': return `Buscando "${String(input.pattern || '').slice(0, 30)}"`;
     case 'WebSearch': return `Buscando en la web: ${String(input.query || '').slice(0, 40)}`;
     case 'WebFetch': return 'Leyendo una página web';
-    case 'Bash': return `Ejecutando ${String(input.command || '').split(/\s+/)[0] || 'un comando'}`;
+    case 'Bash': case 'PowerShell': {
+      // El comando entero (hasta 60 caracteres) dice más que su primera palabra («for», «ls»…).
+      const cmd = String(input.command || '').split('\n')[0].trim();
+      return cmd ? `Ejecutando ${cmd.length > 60 ? cmd.slice(0, 59) + '…' : cmd}` : 'Ejecutando un comando';
+    }
     case 'Edit': case 'MultiEdit': case 'Write': return base ? `Editando ${base}` : 'Editando un archivo';
     case 'Task': case 'Agent': return 'Mandando a un ayudante';
     case 'TodoWrite': return 'Organizando la tarea';
     default: return `Usando ${name}`;
   }
 }
+
+// Herramientas con las que Claude lanza subagentes (Task es el nombre antiguo de Agent).
+const AGENT_TOOLS = new Set(['Agent', 'Task']);
+// Cuánto se espera la respuesta de seguimiento tras terminar el último subagente.
+const CONTINUE_WAIT_MS = 30 * 1000;
+const resultText = c => (typeof c === 'string' ? c : Array.isArray(c) ? c.map(x => (x && x.type === 'text' ? x.text : '')).join('\n') : '');
 
 function buildArgs({ systemPrompt, schema, resume, model, allowedTools, permissionMode }) {
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'];
@@ -92,12 +102,35 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
     if (p) killTree(p.child);
   }
 
+  // Cierra el turno con el último resultado de Claude.
+  function finish(t, ev) {
+    if (turn !== t) return;
+    clearTimeout(t.wait);
+    turn = null;
+    armIdle();
+    // Herramientas nuevas: el proceso se relanza (con --resume) en el siguiente turno.
+    if (restartAfterTurn) { restartAfterTurn = false; setImmediate(stop); }
+    if (ev.is_error) return t.reject(fail('failed', String(ev.result || ev.subtype || 'error')));
+    // `/model x` cambia el modelo solo en este proceso: se recuerda para cuando haya que relanzarlo.
+    if (t.model) argOpts.model = t.model;
+    t.resolve({
+      text: typeof ev.result === 'string' ? ev.result : '',
+      structured: ev.structured_output || null,
+      sessionId,
+      denials: t.denials,
+    });
+  }
+
   function handleLine(p, line) {
     if (p !== proc || !turn || !line.trim()) return;
     let ev;
     try { ev = JSON.parse(line); } catch { return; }
+    const t = turn;
+    const parent = ev.parent_tool_use_id || null;
     if (ev.type === 'system' && ev.subtype === 'init') {
-      turn.onEvent({
+      // Cuando un subagente en segundo plano termina, Claude vuelve a responder solo: otro init.
+      if (++t.inits > 1) { t.continuations = Math.max(0, t.continuations - 1); clearTimeout(t.wait); return; }
+      t.onEvent({
         type: 'start',
         sessionId: ev.session_id,
         // Comandos / disponibles: los de serie, los de skills y los de plugins.
@@ -105,32 +138,60 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
         skills: ev.skills || [],
         terminalCommands: ev.terminal_slash_commands || [],
       });
+    } else if (ev.type === 'system' && ev.subtype === 'background_tasks_changed') {
+      t.running = new Set((ev.tasks || []).map(x => x.task_id));
+      for (const id of t.running) t.tracked.add(id);
+    } else if (ev.type === 'system' && ev.subtype === 'task_progress') {
+      if (t.agents.has(ev.tool_use_id)) t.onEvent({ type: 'agent-progress', key: ev.tool_use_id, label: String(ev.description || '') });
+    } else if (ev.type === 'system' && ev.subtype === 'task_notification') {
+      if (t.tracked.has(ev.task_id)) t.continuations++;
+      if (t.agents.has(ev.tool_use_id)) agentEnd(t, ev.tool_use_id, ev.status === 'completed', ev.summary);
     } else if (ev.type === 'assistant' && ev.message && Array.isArray(ev.message.content)) {
       for (const part of ev.message.content) {
-        if (part.type === 'text' && part.text) turn.onEvent({ type: 'text', text: part.text });
+        // Lo que hace un subagente llega marcado con el id de la llamada que lo lanzó.
+        if (parent) {
+          if (part.type === 'text' && part.text) t.onEvent({ type: 'agent-text', key: parent, text: part.text });
+          if (part.type === 'tool_use') t.onEvent({ type: 'agent-tool', key: parent, name: part.name, label: describeTool(part.name, part.input) });
+          continue;
+        }
+        if (part.type === 'text' && part.text) t.onEvent({ type: 'text', text: part.text });
         if (part.type === 'tool_use' && part.name !== 'StructuredOutput') {
-          turn.onEvent({ type: 'tool', name: part.name, label: describeTool(part.name, part.input) });
+          if (AGENT_TOOLS.has(part.name)) {
+            const i = part.input || {};
+            t.agents.add(part.id);
+            t.onEvent({ type: 'agent-start', key: part.id, name: String(i.description || 'Subagente'), kind: String(i.subagent_type || ''), task: String(i.prompt || '') });
+          }
+          t.onEvent({ type: 'tool', name: part.name, label: describeTool(part.name, part.input) });
         }
       }
+    } else if (ev.type === 'user' && !parent && ev.message && Array.isArray(ev.message.content)) {
+      // Un subagente que no va en segundo plano entrega su resultado como respuesta de la herramienta.
+      for (const part of ev.message.content) {
+        if (part.type !== 'tool_result' || !t.agents.has(part.tool_use_id)) continue;
+        const text = resultText(part.content);
+        if (!/^Async agent launched/.test(text)) agentEnd(t, part.tool_use_id, !part.is_error, text);
+      }
     } else if (ev.type === 'result') {
-      const t = turn;
-      turn = null;
       p.gotResult = true;
       if (ev.session_id) sessionId = ev.session_id;
-      armIdle();
-      // Herramientas nuevas: el proceso se relanza (con --resume) en el siguiente turno.
-      if (restartAfterTurn) { restartAfterTurn = false; setImmediate(stop); }
-      if (ev.is_error) return t.reject(fail('failed', String(ev.result || ev.subtype || 'error')));
-      // `/model x` cambia el modelo solo en este proceso: se recuerda para cuando haya que relanzarlo.
-      if (t.model) argOpts.model = t.model;
-      t.resolve({
-        text: typeof ev.result === 'string' ? ev.result : '',
-        structured: ev.structured_output || null,
-        sessionId,
-        // Qué herramienta pidió Claude y con qué (archivo, comando…), para poder preguntar al usuario.
-        denials: (ev.permission_denials || []).filter(d => d && d.tool_name).map(d => ({ tool: d.tool_name, input: d.tool_input || {} })),
-      });
+      // Qué herramienta pidió Claude y con qué (archivo, comando…), para poder preguntar al usuario.
+      for (const d of ev.permission_denials || []) if (d && d.tool_name) t.denials.push({ tool: d.tool_name, input: d.tool_input || {} });
+      // Con subagentes aún trabajando (o recién terminados), Claude seguirá respondiendo: se espera.
+      if (!ev.is_error && (t.running.size || t.continuations > 0)) {
+        t.last = ev;
+        t.onEvent({ type: 'partial', text: typeof ev.result === 'string' ? ev.result : '', structured: ev.structured_output || null });
+        // Por si la respuesta de seguimiento no llega, se da por terminado tras un rato.
+        clearTimeout(t.wait);
+        if (!t.running.size) t.wait = setTimeout(() => finish(t, t.last), CONTINUE_WAIT_MS);
+        return;
+      }
+      finish(t, ev);
     }
+  }
+  function agentEnd(t, key, ok, text) {
+    if (t.ended.has(key)) return;
+    t.ended.add(key);
+    t.onEvent({ type: 'agent-end', key, ok, text: String(text || '') });
   }
 
   function onExit(p, code, error) {
@@ -206,7 +267,10 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       clearIdle();
       try { if (!proc) proc = spawnProc(); } catch (e) { return rejected(fail('not_found', e.message)); }
       let t;
-      const done = new Promise((resolve, reject) => { t = { resolve, reject, onEvent }; });
+      const done = new Promise((resolve, reject) => {
+        // running/tracked: tareas en segundo plano; continuations: respuestas que Claude aún debe dar.
+        t = { resolve, reject, onEvent, inits: 0, running: new Set(), tracked: new Set(), continuations: 0, agents: new Set(), ended: new Set(), denials: [], last: null, wait: null };
+      });
       const switchTo = typeof text === 'string' && /^\/model\s+(\S+)/.exec(text.trim());
       if (switchTo) t.model = switchTo[1];
       turn = t;
@@ -217,6 +281,7 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
         done,
         cancel() {
           if (turn !== t) return;
+          clearTimeout(t.wait);
           turn = null;
           stop();
           t.reject(fail('cancelled', 'Cancelado'));

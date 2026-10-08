@@ -200,7 +200,28 @@ test('lineSplitter junta líneas partidas', () => {
 
 test('describeTool resume cada herramienta', () => {
   assert.equal(describeTool('Read', { file_path: path.join('x', 'y.txt') }), 'Leyendo y.txt');
-  assert.equal(describeTool('Bash', { command: 'pnpm test --watch' }), 'Ejecutando pnpm');
+  assert.equal(describeTool('Bash', { command: 'pnpm test --watch' }), 'Ejecutando pnpm test --watch');
+  assert.equal(describeTool('PowerShell', { command: 'Get-ChildItem src\nmás' }), 'Ejecutando Get-ChildItem src');
   assert.equal(describeTool('Grep', { pattern: 'x'.repeat(50) }), `Buscando "${'x'.repeat(30)}"`);
   assert.equal(describeTool('Raro'), 'Usando Raro');
+});
+
+test('con subagentes en segundo plano espera la respuesta final y cuenta lo que hace cada uno', async t => {
+  const s = session();
+  t.after(() => s.close());
+  const events = [];
+  const r = await s.send('agents', ev => events.push(ev)).done;
+  assert.deepEqual(r.structured.lines, ['Hay 13 archivos.'], 'la respuesta final, no la de a medias');
+  const types = events.map(e => e.type);
+  assert.ok(types.includes('partial'));
+  const start = events.find(e => e.type === 'agent-start');
+  assert.deepEqual([start.key, start.name, start.task], ['toolu_agentA', 'Contar archivos', 'Cuenta los .js de src/']);
+  assert.deepEqual(events.filter(e => e.type === 'agent-tool').map(e => e.label), ['Buscando archivos src/**/*.js']);
+  assert.equal(events.find(e => e.type === 'agent-progress').label, 'Finding src/**/*.js');
+  assert.equal(events.find(e => e.type === 'agent-text').text, '13 archivos');
+  const end = events.filter(e => e.type === 'agent-end');
+  assert.equal(end.length, 1, 'un solo final aunque el resultado llegue por dos vías');
+  assert.deepEqual([end[0].ok, end[0].text], [true, '13 archivos']);
+  // Lo del subagente no se mezcla con el estado de la respuesta principal.
+  assert.ok(!events.some(e => e.type === 'tool' && e.name === 'Glob'));
 });
