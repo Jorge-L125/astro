@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:capture', 'astro:prefs', 'astro:commands'];
+const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:welcome-back'];
 
 contextBridge.exposeInMainWorld('astro', {
   setIgnore: ignore => ipcRenderer.send('mouse:ignore', ignore),
@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('astro', {
   cancel: id => ipcRenderer.send('claude:cancel', id),
   endConversation: conv => ipcRenderer.send('claude:end', conv),
   prewarm: conv => ipcRenderer.send('claude:prewarm', conv),
+  resumeConversation: (conv, sessionId) => ipcRenderer.send('claude:resume', { conv, sessionId }),
+  history: () => ipcRenderer.invoke('history:list'),
   setPref: (key, value) => ipcRenderer.send('prefs:set', { key, value }),
   discardCapture: id => ipcRenderer.send('capture:discard', id),
   on(channel, fn) {

@@ -2,10 +2,12 @@
 // cada conversación (comandos de serie, skills y plugins) y se guarda para el siguiente arranque.
 const fs = require('fs');
 const path = require('path');
+const { readDescriptions } = require('./skill-descriptions');
 
 // kind: 'local' lo resuelve Astro sin llamar a Claude; 'info' muestra un informe; 'task' hace trabajo.
 const BUILTIN = {
-  clear: { kind: 'local', desc: 'Empieza esta conversación de cero' },
+  clear: { kind: 'local', desc: 'Empieza esta conversación de cero (pide confirmación)' },
+  resume: { kind: 'local', desc: 'Retoma una conversación anterior' },
   compact: { kind: 'task', desc: 'Resume la conversación para liberar contexto' },
   context: { kind: 'info', desc: 'Cuánto contexto lleva la conversación' },
   usage: { kind: 'info', desc: 'Uso de tu plan y cuándo se reinicia' },
@@ -40,18 +42,25 @@ const HIDDEN = new Set([
   'ultrareview', 'loop', 'schedule', 'heapdump', 'design-consent', 'design-revoke', 'workflow-launch-exec',
   'extra-usage', 'usage-credits', 'team-onboarding', 'fast', 'focus', 'color', 'rename', 'config',
   'output-style', 'autocompact', 'auto-mode-setup', 'reload-plugins', 'reload-skills', 'import', 'mcp',
-  'agents', 'list-agents', 'advisor', 'skill-doctor', 'goal', 'exit', 'resume', 'rewind', 'login', 'logout',
+  'agents', 'list-agents', 'advisor', 'skill-doctor', 'goal', 'exit', 'rewind', 'login', 'logout',
 ]);
 
-/** Lista para la interfaz: [{ name, desc, kind, arg? }], primero los de serie y luego los skills. */
-function buildCommandList({ slashCommands = [], skills = [], terminalCommands = [] } = {}) {
+/**
+ * Lista para la interfaz: [{ name, desc, kind, arg? }], primero los de Astro, luego los de serie y
+ * los skills. `descriptions` (nombre -> texto) trae la descripción real de skills y comandos propios.
+ */
+function buildCommandList({ slashCommands = [], skills = [], terminalCommands = [] } = {}, descriptions = new Map()) {
   const skillSet = new Set(skills);
   const terminal = new Set(terminalCommands);
+  const short = n => n.slice(n.lastIndexOf(':') + 1);
+  const described = n => descriptions.get(n) || descriptions.get(short(n));
+  // Los que resuelve Astro están siempre, los anuncie Claude o no.
+  const names = new Set([...Object.keys(BUILTIN).filter(n => BUILTIN[n].kind === 'local'), ...slashCommands]);
   const out = [];
-  for (const name of new Set(slashCommands)) {
+  for (const name of names) {
     if (!name || name.startsWith('_') || HIDDEN.has(name) || terminal.has(name)) continue;
     if (BUILTIN[name]) out.push({ name, ...BUILTIN[name] });
-    else if (skillSet.has(name)) out.push({ name, kind: 'skill', desc: SKILL_DESC[name] || 'Skill' });
+    else if (skillSet.has(name) || described(name)) out.push({ name, kind: 'skill', desc: SKILL_DESC[name] || described(name) || 'Skill' });
     // Un comando de serie que Astro no conoce se oculta: puede que no tenga sentido fuera de la terminal.
   }
   const rank = { local: 0, info: 1, task: 2, skill: 3 };
@@ -61,7 +70,9 @@ function buildCommandList({ slashCommands = [], skills = [], terminalCommands = 
 // Hasta la primera conversación no se sabe qué hay instalado: se ofrecen los de serie más útiles.
 const FALLBACK = buildCommandList({ slashCommands: Object.keys(BUILTIN).filter(n => n !== 'review' && n !== 'cost') });
 
-function createCommandStore(dir) {
+function createCommandStore(dir, { home, cwd } = {}) {
+  // Se leen una vez, al recibir la primera lista: recorrer ~/.claude cuesta unos 150 ms.
+  let descriptions = null;
   const file = path.join(dir, 'commands.json');
   let list = FALLBACK;
   try {
@@ -72,7 +83,8 @@ function createCommandStore(dir) {
     get: () => list,
     /** Actualiza con lo que anunció Claude Code; devuelve true si la lista cambió. */
     update(announced) {
-      const next = buildCommandList(announced);
+      if (!descriptions) descriptions = home ? readDescriptions({ home, cwd }) : new Map();
+      const next = buildCommandList(announced, descriptions);
       if (!next.length || JSON.stringify(next) === JSON.stringify(list)) return false;
       list = next;
       try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(file, JSON.stringify(list)); } catch { /* sin caché */ }

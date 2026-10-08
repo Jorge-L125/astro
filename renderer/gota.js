@@ -148,6 +148,124 @@ export function createGota(host, opts = {}) {
   // manos flotantes
   const hands = ['L', 'R'].map(() => { const h = mesh(new THREE.SphereGeometry(0.17, 32, 20), mShell); bot.add(h); return h; });
 
+  // ---------- accesorios ----------
+  const accRoot = new THREE.Group(); bot.add(accRoot);
+  const felt = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
+  const mRed = felt(0xd23b3b), mFur = felt(0xf8f5ee), mBand = felt(0x8a5cf0);
+  const mWitch = new THREE.MeshStandardMaterial({ color: 0x2a2233, roughness: 0.7 });
+  const mSheet = new THREE.MeshPhysicalMaterial({ color: 0xf7f6f3, roughness: 0.9, sheen: 1, sheenColor: new THREE.Color(0xffffff), side: THREE.DoubleSide });
+  const mCape = new THREE.MeshStandardMaterial({ color: 0x17141c, roughness: 0.55 });
+  const mCapeIn = new THREE.MeshStandardMaterial({ color: 0xa3172a, roughness: 0.45, side: THREE.BackSide });
+  const mHair = new THREE.MeshPhysicalMaterial({ color: 0x16141a, roughness: 0.35, clearcoat: 0.6 });
+  const mFang = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+  const ACC = {}, sway = [];
+  // Sombrero por tramos: cada tramo cuelga del anterior y se balancea con el movimiento.
+  function bentHat(mat, segs) {
+    const r = new THREE.Group(); let parent = r;
+    segs.forEach(([rb, rt, h, bend], i) => {
+      const g = new THREE.Group(); g.rotation.z = bend; g.userData = { bend, w: i }; parent.add(g); sway.push(g);
+      const m = new THREE.Mesh(rt > 0 ? new THREE.CylinderGeometry(rt, rb, h, 40) : new THREE.ConeGeometry(rb, h, 40), mat); m.position.y = h / 2; g.add(m);
+      const nx = new THREE.Group(); nx.position.y = h; g.add(nx); parent = nx;
+    });
+    return { root: r, tip: parent };
+  }
+  { // gorro de Navidad
+    const g = new THREE.Group();
+    const brim = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.13, 20, 64), mFur); brim.rotation.x = Math.PI / 2; g.add(brim);
+    const h = bentHat(mRed, [[0.58, 0.4, 0.38, 0], [0.4, 0.2, 0.36, -0.45], [0.2, 0, 0.34, -0.6]]); g.add(h.root);
+    h.tip.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 16), mFur));
+    g.position.set(0.05, 0.8, 0); g.rotation.set(-0.12, 0, 0.12); ACC.santa = g;
+  }
+  { // sombrero de bruja
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 0.035, 64), mWitch));
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.53, 0.14, 48), mBand); band.position.y = 0.08; g.add(band);
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.03), felt(0xf2c94c)); buckle.position.set(0, 0.08, 0.525); g.add(buckle);
+    const h = bentHat(mWitch, [[0.52, 0.34, 0.5, 0], [0.34, 0.15, 0.45, 0.35], [0.15, 0, 0.4, 0.55]]); g.add(h.root);
+    g.position.set(-0.04, 0.84, 0); g.rotation.set(-0.1, 0, -0.14); ACC.witch = g;
+  }
+  { // gorrito de fiesta
+    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    x.fillStyle = '#fff7e6'; x.fillRect(0, 0, 128, 128); x.lineWidth = 14;
+    ['#ff6fb5', '#3a8bff', '#f2c94c'].forEach((col, j) => { for (let i = -6 + j; i < 8; i += 3) { x.strokeStyle = col; x.beginPath(); x.moveTo(i * 22, 128); x.lineTo(i * 22 + 128, 0); x.stroke(); } });
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 1);
+    const g = new THREE.Group();
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.78, 48), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })); cone.position.y = 0.39; g.add(cone);
+    const pom = new THREE.Mesh(new THREE.SphereGeometry(0.09, 20, 14), felt(0xf2c94c)); pom.position.y = 0.8; g.add(pom);
+    g.position.set(0.3, 0.84, 0.12); g.rotation.set(0.1, 0, -0.36); ACC.party = g;
+  }
+  { // manta de fantasma con el borde ondulado
+    const pts = [];
+    for (let i = 0; i <= 24; i++) { const a = (i / 24) * Math.PI / 2; pts.push(new THREE.Vector2(Math.sin(a) * 1.07, Math.cos(a) * 1.07)); }
+    for (let i = 1; i <= 14; i++) { const k = i / 14; pts.push(new THREE.Vector2(1.07 + 0.17 * k * k, -1.08 * k)); }
+    const geo = new THREE.LatheGeometry(pts, 96), p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i); if (y >= -0.4) continue;
+      const k = (-0.4 - y) / 0.68, w = Math.sin(Math.atan2(p.getZ(i), p.getX(i)) * 7), s = 1 + w * 0.03 * k;
+      p.setY(i, y + w * 0.09 * k * k); p.setX(i, p.getX(i) * s); p.setZ(i, p.getZ(i) * s);
+    }
+    geo.computeVertexNormals();
+    const g = new THREE.Group(); const sheet = new THREE.Mesh(geo, mSheet); g.add(sheet); g.userData.sheet = sheet; ACC.ghost = g;
+  }
+  { // capa de vampiro y pelo en pico
+    const g = new THREE.Group();
+    const ts = Math.PI - 1.35, tl = 2.7;
+    const collar = new THREE.CylinderGeometry(1.32, 1.0, 0.75, 64, 1, true, ts, tl), cape = new THREE.CylinderGeometry(1.0, 1.3, 0.95, 64, 1, true, ts, tl);
+    for (const m of [mCape, mCapeIn]) { const a = new THREE.Mesh(collar, m); a.position.y = -0.05; const b = new THREE.Mesh(cape, m); b.position.y = -0.9; g.add(a, b); }
+    const cap = new THREE.SphereGeometry(1.012, 64, 24, 0, Math.PI * 2, 0, 0.62), cp = cap.attributes.position;
+    for (let i = 0; i < cp.count; i++) {
+      const v = new THREE.Vector3().fromBufferAttribute(cp, i), phi = Math.atan2(v.x, v.z), pol = Math.acos(clamp(v.y / 1.012, -1, 1));
+      const np = pol * (1 + 0.5 * Math.exp(-((phi / 0.32) ** 2)) * (pol / 0.62) ** 3), sp = Math.sin(np);
+      cp.setXYZ(i, Math.sin(phi) * sp * 1.012, Math.cos(np) * 1.012, Math.cos(phi) * sp * 1.012);
+    }
+    cap.computeVertexNormals(); g.add(new THREE.Mesh(cap, mHair));
+    ACC.vampire = g;
+  }
+  { // sombrero de vaquero
+    const g = new THREE.Group();
+    const mTan = felt(0xb47a45), mLeather = felt(0x4a2f1c);
+    const bp = []; for (let i = 0; i <= 12; i++) bp.push(new THREE.Vector2(0.45 + 0.57 * i / 12, 0.02)); bp.push(new THREE.Vector2(1.035, 0)); for (let i = 12; i >= 0; i--) bp.push(new THREE.Vector2(0.45 + 0.57 * i / 12, -0.02));
+    const brimGeo = new THREE.LatheGeometry(bp, 96), b = brimGeo.attributes.position;
+    for (let i = 0; i < b.count; i++) {
+      const x = b.getX(i), z = b.getZ(i), sx = Math.max(0, Math.abs(x) - 0.48) / 0.55;
+      b.setY(i, b.getY(i) + 0.34 * sx * sx - 0.05 * Math.max(0, z - 0.4) / 0.6);
+    }
+    brimGeo.computeVertexNormals(); g.add(new THREE.Mesh(brimGeo, mTan));
+    const crownGeo = new THREE.CylinderGeometry(0.4, 0.5, 0.52, 48, 8), c = crownGeo.attributes.position;
+    for (let i = 0; i < c.count; i++) {
+      const x = c.getX(i), y = c.getY(i), z = c.getZ(i), t = (y + 0.26) / 0.52;
+      c.setX(i, x * (1 - 0.22 * t * t * Math.max(0, z) / 0.45)); c.setY(i, y - (t > 0.99 ? 0.11 * Math.exp(-((x / 0.22) ** 2)) : 0));
+    }
+    crownGeo.computeVertexNormals();
+    const crown = new THREE.Mesh(crownGeo, mTan); crown.position.y = 0.26; g.add(crown);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.485, 0.5, 0.1, 48, 1, true), mLeather); band.position.y = 0.06; g.add(band);
+    g.position.set(0.03, 0.82, -0.02); g.rotation.set(-0.16, 0, 0.1); ACC.cowboy = g;
+  }
+  const fangs = [-1, 1].map(sg => {
+    const f = new THREE.Group(); const m = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.095, 16), mFang);
+    m.rotation.z = Math.PI; m.position.y = -0.035; m.scale.z = 0.55; f.add(m);
+    return onSurface(f, 0.085 * sg, -0.25, 0.004);
+  });
+  Object.values(ACC).forEach(g => { g.visible = false; accRoot.add(g); });
+  let accName = 'none';
+  const ACC_REACT = {
+    none: () => { play('hop'); setExpr('happy', 1); say('Así estoy más fresco.'); },
+    santa: () => { play('jump'); setExpr('joy', 1.4); say('¡Jo, jo, jo! Feliz Navidad.'); },
+    ghost: () => { play('recoil'); setExpr('surprised', 1.2); say('¡Buuu! ¿Te asusté?'); },
+    vampire: () => { play('spin'); setExpr('wink', 1.4); say('Bleh, bleh… vengo por tus tokens.'); },
+    witch: () => { play('spin'); setExpr('proud', 1.4); say('¡Abracadabra!'); },
+    party: () => { play('dance'); setExpr('joy', 3); say('¡A celebrar!'); },
+    cowboy: () => { play('jump'); setExpr('wink', 1.4); say('¡Yija! Hay nuevo sheriff en la esquina.'); },
+  };
+  function setAccessory(n, react) {
+    if (!ACC_REACT[n]) n = 'none';
+    accName = n;
+    for (const k in ACC) ACC[k].visible = k === n;
+    fangs.forEach(f => { f.visible = n === 'vampire'; });
+    hands.forEach(h => { h.material = n === 'ghost' ? mSheet : mShell; });
+    if (react && isLive()) { wake(true); action = null; ACC_REACT[n](); }
+  }
+
   // suelo
   const GROUND = -1.45;
   const shTex = (() => {
@@ -178,6 +296,10 @@ export function createGota(host, opts = {}) {
     wink: { winkL: 1 },
     focus: { sx: 1.05, sy: 0.82 },
     worried: { sx: 1.1, sy: 0.72, tilt: -0.6, eyeY: -0.01 },
+    yawn: { sx: 1.2, sy: 0.07, eyeY: 0.015 },
+    shy: { pill: 0, arc: 1, blush: 1, eyeY: -0.025 },
+    bored: { sx: 1.05, sy: 0.58, eyeY: -0.01 },
+    proud: { pill: 0, arc: 1, blush: 0.35, eyeY: 0.035, sx: 1.1 },
   };
   const expr = n => ({ ...BASE, ...(EX[n] || {}) });
   const cur = expr('neutral');
@@ -200,6 +322,8 @@ export function createGota(host, opts = {}) {
     giggle: { dur: 0.9, f: (p, t) => ({ rz: Math.sin(t * 30) * 0.05 * (1 - p), sy: 1 + Math.sin(t * 30) * 0.03 * (1 - p), y: bump(p, 0, 1) * 0.08 }) },
     squish: { dur: 0.35, f: p => ({ sy: 1 - 0.18 * bump(p, 0, 1) }) },
     recoil: { dur: 0.9, f: p => ({ rx: -0.28 * bump(p, 0, 1), y: 0.15 * bump(p, 0, 0.5), hl: 0.35 * bump(p, 0, 1), hr: 0.35 * bump(p, 0, 1) }) },
+    yawn: { dur: 1.6, f: p => ({ sy: 1 + 0.13 * bump(p, 0.15, 0.75), sxw: 1 - 0.05 * bump(p, 0.15, 0.75), rx: -0.16 * bump(p, 0.15, 0.75), hl: 0.55 * bump(p, 0.1, 0.8), hr: 0.55 * bump(p, 0.1, 0.8) }) },
+    lookaround: { dur: 2.6, f: p => ({ ry: Math.sin(p * Math.PI * 2) * 0.65 * bump(p, 0, 1), rx: -0.08 * bump(p, 0.3, 0.7) }) },
     scratch: { dur: 1.8, f: (p, t) => { const up = ease(clamp(p / 0.2)) * ease(clamp((1 - p) / 0.2)); return { hr: 1.25 * up, hrx: (-0.55 + Math.sin(t * 18) * 0.06) * up, rz: 0.12 * up }; } },
   };
   let action = null;
@@ -234,6 +358,12 @@ export function createGota(host, opts = {}) {
   let nextBlink = 2, blinkT = -1, talkUntil = 0, splashT0 = -1, nextZ = 0;
   let watchIdx = 0, nextWatch = 0, highlightId = null, hoverAgent = null, appBusy = false;
   const look = { rx: 0, ry: 0, gx: 0, gy: 0 };
+  // actitudes: aburrimiento, timidez, lo que lees, el scroll, vueltas alrededor, escribir rápido, cumplidos
+  let boredDone = false, yawnDone = false, hoverSince = 0, lastShy = -99, lookAt = null, selTimer = null;
+  let wheelAcc = 0, lastWheelReact = -99, circAcc = 0, prevAng = null, compliments = 0, typeTimes = [], lastTypeReact = -99;
+  const BORED_AFTER = Math.min(20, SLEEP_AFTER / 3);
+  // resorte para que las puntas de los sombreros se balanceen con el movimiento
+  const spring = { ax: 0, vx: 0, az: 0, vz: 0, py: 0, pvy: 0, prz: 0, px: 0 };
   const mouse = { x: innerWidth, y: innerHeight, t: performance.now() };
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 
@@ -381,6 +511,7 @@ export function createGota(host, opts = {}) {
       for (const a of agents) if (!a.gone && a.m.visible) targets.push(a.m);
     }
     const hit = ray.intersectObjects(targets, false)[0];
+    if (!hit && accName !== 'none' && accRoot.visible && ray.intersectObject(ACC[accName], true).length) return { type: 'body' };
     if (!hit) return null;
     if (hit.object.userData.sessionId !== undefined) return { type: 'mini', id: hit.object.userData.sessionId };
     if (hit.object.userData.agentId !== undefined) return { type: 'agent', id: hit.object.userData.agentId };
@@ -427,6 +558,11 @@ export function createGota(host, opts = {}) {
     const speed = Math.hypot(e.clientX - mouse.x, e.clientY - mouse.y) / dt * 1000;
     mouse.x = e.clientX; mouse.y = e.clientY; mouse.t = now; lastMouseT = T;
     const c = botScreen(), dist = Math.hypot(mouse.x - c.x, mouse.y - c.y);
+    // dar vueltas con el cursor alrededor de la gota la marea
+    const ang = Math.atan2(mouse.y - c.y, mouse.x - c.x), ring = dist > 50 && dist < 260;
+    if (ring && prevAng != null && !down) { let d = ang - prevAng; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; circAcc += d; }
+    prevAng = ring ? ang : null;
+    if (Math.abs(circAcc) > Math.PI * 6 && mode === 'awake') { circAcc = 0; setExpr('dizzy', 2); play('wobble'); say('Me haces dar vueltas la cabeza…'); }
     if (dist < 320) { if (mode === 'sleep' && dist < 160) wake(); lastActive = T; }
     if (mode === 'awake' && speed > 2600 && dist < 240 && T - lastStartle > 5 && !down) { lastStartle = T; play('recoil'); setExpr('surprised', 0.9); }
     if (down) {
@@ -437,6 +573,7 @@ export function createGota(host, opts = {}) {
     }
     const p = pickAt(e.clientX, e.clientY);
     const h = !!p && p.type === 'body';
+    if (h && !hover) hoverSince = T;
     if (h && !hover && mode === 'awake' && T - lastHop > 6 && !action) { lastHop = T; play('hop'); }
     hover = h;
     const ag = p && p.type === 'agent' ? p.id : null;
@@ -467,19 +604,44 @@ export function createGota(host, opts = {}) {
     down = null; document.body.style.cursor = '';
   });
 
+  // Al seleccionar texto (en las nubes o en las hojas) lo mira con curiosidad. Solo comenta lo que
+  // seleccionas en el panel: una frase nueva entre las nubes atenuaría la que estás leyendo.
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(selTimer);
+    selTimer = setTimeout(() => {
+      const s = getSelection(), txt = s && s.toString().trim();
+      if (!txt || txt.length < 3 || mode !== 'awake' || !s.rangeCount) return;
+      const anchor = s.anchorNode && (s.anchorNode.nodeType === 1 ? s.anchorNode : s.anchorNode.parentElement);
+      if (!anchor || anchor.closest('textarea, input, .ask')) return;
+      const r = s.getRangeAt(0).getBoundingClientRect();
+      lookAt = { x: r.left + r.width / 2, y: r.top + r.height / 2, until: T + 2.6 }; lastActive = T;
+      setExpr('curious', 2); play('hop');
+      if (anchor.closest('.panel')) say(`«${txt.length > 28 ? txt.slice(0, 26) + '…' : txt}»… suena interesante.`);
+    }, 600);
+  });
+  // Sigue el scroll con la mirada; si es muy rápido, se marea.
+  addEventListener('wheel', e => {
+    if (mode !== 'awake') return;
+    lastActive = T; lookAt = { x: mouse.x, y: botScreen().y + Math.sign(e.deltaY) * 420, until: T + 0.6 };
+    wheelAcc += Math.abs(e.deltaY);
+    if (wheelAcc > 6000 && T - lastWheelReact > 20) { lastWheelReact = T; wheelAcc = 0; setExpr('dizzy', 1.4); play('wobble'); say('¡Más despacio, que me mareo!'); }
+  }, { passive: true });
+
   // ---------- color ----------
   function applyColors(dt) {
     bodyColor.lerp(targetColor, 1 - Math.exp(-10 * dt));
     mShell.color.copy(bodyColor);
     mFx.color.copy(bodyColor);
     const lum = 0.2126 * bodyColor.r + 0.7152 * bodyColor.g + 0.0722 * bodyColor.b;
-    mGlow.color.set(lum > 0.3 ? 0x141416 : 0xffffff);
+    // con la manta de fantasma los ojos van siempre oscuros sobre la tela blanca
+    mGlow.color.set(lum > 0.3 || accName === 'ghost' ? 0x141416 : 0xffffff);
   }
 
   // ---------- bucle ----------
   const clock = new THREE.Timer();
   function applyFace(blink, fv) {
-    face.visible = fv > 0.01; face.scale.setScalar(Math.max(0.001, fv));
+    // la manta del fantasma tapa la superficie: la cara se adelanta un poco para quedar encima
+    face.visible = fv > 0.01; face.scale.setScalar(Math.max(0.001, fv) * (accName === 'ghost' ? 1.09 : 1));
     const setW = (o, w, sx = 1, sy = 1) => { o.visible = w > 0.01; o.scale.set(Math.max(0.001, w * sx), Math.max(0.001, w * sy), Math.max(0.001, w)); };
     for (const s of ['L', 'R']) {
       const e = eyes[s];
@@ -639,6 +801,13 @@ export function createGota(host, opts = {}) {
       if (mode === 'awake' && !appBusy && !busyOf.get(activeId) && !talking && !hover && !down && T - lastActive > SLEEP_AFTER) sleep();
     }
     const awake = mode === 'awake', asleep = mode === 'sleep', live = isLive();
+    // actitudes en reposo: se aburre, bosteza antes de dormirse y se pone tímida si la miras mucho
+    if (T - lastActive < 1) { boredDone = false; yawnDone = false; }
+    if (awake && !action && !down && !swap && !petting && !appBusy && !talking && !busyOf.get(activeId)) {
+      if (T - lastActive > SLEEP_AFTER - 5 && !yawnDone) { yawnDone = true; play('yawn'); setExpr('yawn', 1.3); }
+      else if (T - lastActive > BORED_AFTER && !boredDone) { boredDone = true; play('lookaround'); setExpr('bored', 2.6); say(pick(['¿Hacemos algo?', 'Qué tranquilo está esto…', 'Mmm… me aburro un poquito.'])); }
+      else if (hover && T - hoverSince > 3.5 && T - lastShy > 15) { lastShy = T; setExpr('shy', 2.2); play('giggle'); say(pick(['¿Por qué me miras tanto?', 'Me pones nervioso…', 'Jeje… ¿qué pasa?'])); }
+    }
 
     let a = { ...ACT0 };
     if (action && live) {
@@ -666,6 +835,8 @@ export function createGota(host, opts = {}) {
       const w = working[watchIdx % working.length];
       tx = clamp((w.pos.x - root.position.x) / 1.3, -1, 1); ty = clamp(-(w.pos.y - root.position.y) / 0.8, -1, 1) * 0.7;
     }
+    if (awake && lookAt && T < lookAt.until) { tx = clamp((lookAt.x - c.x) / (innerWidth * 0.5), -1, 1); ty = clamp((lookAt.y - c.y) / (innerHeight * 0.5), -1, 1); }
+    if (awake && override === 'shy') { tx = mouse.x > c.x ? -0.75 : 0.75; ty = 0.35; } // aparta la mirada
     const lk = 1 - Math.exp(-5 * dt);
     look.ry = lerp(look.ry, tx * 0.6, lk); look.rx = lerp(look.rx, ty * 0.35, lk);
     look.gx = lerp(look.gx, tx, lk * 1.6); look.gy = lerp(look.gy, -ty, lk * 1.6);
@@ -682,7 +853,7 @@ export function createGota(host, opts = {}) {
     if (awake && T > nextBlink && blinkT < 0) blinkT = 0;
     if (blinkT >= 0) { blinkT += dt; blink = bump(blinkT, 0, 0.16); if (blinkT > 0.16) { blinkT = -1; nextBlink = T + 1.8 + Math.random() * 3.5; if (Math.random() < 0.2) nextBlink = T + 0.25; } }
 
-    const bob = asleep ? Math.sin(T * 1.2) * 0.03 : Math.sin(T * 2) * 0.06;
+    const bob = asleep ? Math.sin(T * 1.2) * 0.03 : Math.sin(T * 2) * 0.06 + (accName === 'ghost' ? Math.sin(T * 1.3) * 0.07 : 0);
     const breath = asleep ? 1 + Math.sin(T * 1.2) * 0.025 : 1 + Math.sin(T * 2 + 0.6) * 0.012;
     // sin boca: al hablar, rebota un poco
     const talkBob = (talking || T < talkUntil) && awake ? Math.abs(Math.sin(T * 11)) * 0.05 : 0;
@@ -702,6 +873,21 @@ export function createGota(host, opts = {}) {
       h.visible = hw * handK > 0.01; h.scale.setScalar(Math.max(0.001, hw * handK));
       h.position.set(lerp(0.5, 1.13, hw) * sg + dx, -0.42 + up + Math.sin(T * 2 + i * 1.3) * 0.04, 0.2);
     });
+    accRoot.scale.setScalar(Math.max(0.001, hw)); accRoot.visible = hw > 0.01;
+    if (accName !== 'none') {
+      const dd = Math.max(dt, 1e-3);
+      const vy = (root.position.y - spring.py) / dd, ay = (vy - spring.pvy) / dd;
+      const rzv = (bot.rotation.z - spring.prz) / dd, xv = (root.position.x - spring.px) / dd;
+      spring.py = root.position.y; spring.pvy = vy; spring.prz = bot.rotation.z; spring.px = root.position.x;
+      spring.vx += (-90 * spring.ax - 7 * spring.vx + clamp(ay, -60, 60) * 0.02) * dt;
+      spring.vz += (-90 * spring.az - 7 * spring.vz - clamp(rzv, -20, 20) * 0.8 - clamp(xv, -10, 10) * 1.2 + Math.sin(T * 1.7) * 0.4) * dt;
+      spring.ax = clamp(spring.ax + spring.vx * dt, -0.7, 0.7); spring.az = clamp(spring.az + spring.vz * dt, -0.7, 0.7);
+      if (![spring.ax, spring.vx, spring.az, spring.vz, spring.pvy].every(Number.isFinite)) Object.assign(spring, { ax: 0, vx: 0, az: 0, vz: 0, pvy: 0 });
+      sway.forEach(g => { g.rotation.z = g.userData.bend + spring.az * 0.6 * g.userData.w; g.rotation.x = spring.ax * 0.5 * g.userData.w; });
+      if (accName === 'ghost') ACC.ghost.userData.sheet.rotation.y = T * 0.35;
+    }
+    wheelAcc *= Math.exp(-1.5 * dt); circAcc *= Math.exp(-0.6 * dt);
+
     // suelo
     const bottom = root.position.y - (o.morph > 0.5 ? DROP_B : 1) * o.s * o.sy;
     const h = Math.max(0, bottom - GROUND);
@@ -764,5 +950,26 @@ export function createGota(host, opts = {}) {
     // ayudantes
     spawnAgent, finishAgent, clearAgents,
     highlightAgent: id => { highlightId = id; },
+    // apariencia y actitudes
+    setAccessory,
+    accessory: () => accName,
+    // escribir rápido la emociona; si no, solo mira con curiosidad
+    typing: () => {
+      lastActive = T;
+      typeTimes = typeTimes.filter(x => T - x < 1); typeTimes.push(T);
+      if (typeTimes.length >= 9 && T - lastTypeReact > 20) { lastTypeReact = T; setExpr('joy', 1.2); play('giggle'); return; }
+      if (!override || override === 'curious') setExpr('curious', 0.8);
+    },
+    // un cumplido: corazones; al tercero, presume
+    compliment: () => {
+      wake(true);
+      if (++compliments >= 3) { compliments = 0; setExpr('proud', 2); play('spin'); say('Ya lo sé, soy adorable.'); return; }
+      setExpr('love', 2.2); play('giggle');
+    },
+    // vuelves al computador tras un rato sin usarlo
+    welcomeBack: () => {
+      if (!isLive() || appBusy) return;
+      wake(true); setExpr('love', 1.8); play('jump'); say('¡Volviste! Te extrañé.');
+    },
   };
 }

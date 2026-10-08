@@ -1,7 +1,7 @@
 import { createGota } from './gota.js';
 import { esc, inline, md, buildSheets } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
-import { parseSlash, suggest, commandReply } from './slash.js';
+import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -22,7 +22,8 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('astro-' + k); return v === null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem('astro-' + k, v); } catch { /* sin almacenamiento */ } },
 };
-const cfg = { color: store.get('color', '#ff6b4a'), side: store.get('side', 'right'), theme: store.get('theme', 'auto') };
+const cfg = { color: store.get('color', '#ff6b4a'), side: store.get('side', 'right'), theme: store.get('theme', 'auto'), glass: store.get('glass', 'glass'), acc: store.get('acc', 'none') };
+const ACCESSORIES = [['none', 'Ninguno', '🚫'], ['santa', 'Navidad', '🎅'], ['ghost', 'Fantasma', '👻'], ['vampire', 'Vampiro', '🧛'], ['witch', 'Bruja', '🧙‍♀️'], ['party', 'Fiesta', '🥳'], ['cowboy', 'Vaquero', '🤠']];
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
   const f = v => clamp(Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt), 0, 255);
@@ -95,7 +96,8 @@ function applyLayout() {
   body.classList.toggle('left-side', cfg.side === 'left');
   gota.setSide(cfg.side === 'left' ? -1 : 1);
   if (cfg.theme === 'auto') delete root.dataset.theme; else root.dataset.theme = cfg.theme;
-  for (const [id, key] of [['seg-side', 'side'], ['seg-theme', 'theme']]) {
+  body.classList.toggle('glass', cfg.glass === 'glass');
+  for (const [id, key] of [['seg-side', 'side'], ['seg-theme', 'theme'], ['seg-glass', 'glass']]) {
     [...$(id).children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === cfg[key])));
   }
 }
@@ -110,13 +112,26 @@ custom.className = 'custom'; custom.title = 'Color personalizado';
 custom.innerHTML = '+<input type="color" aria-label="Color personalizado">';
 custom.querySelector('input').addEventListener('input', e => setSessionColor(e.target.value));
 $('swatches').append(custom);
-for (const [id, key] of [['seg-side', 'side'], ['seg-theme', 'theme']]) {
+for (const [id, key] of [['seg-side', 'side'], ['seg-theme', 'theme'], ['seg-glass', 'glass']]) {
   $(id).addEventListener('click', e => {
     const v = e.target.dataset && e.target.dataset.v;
     if (!v) return;
     cfg[key] = v; store.set(key, v); applyLayout();
   });
 }
+// Accesorios de la gota: se guardan para el próximo arranque.
+function setAccessory(k, react) {
+  cfg.acc = k; store.set('acc', k);
+  gota.setAccessory(k, react);
+  [...$('accs').children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
+}
+ACCESSORIES.forEach(([k, label, emoji]) => {
+  const b = document.createElement('button');
+  b.textContent = emoji; b.title = label; b.setAttribute('aria-label', label); b.dataset.k = k;
+  b.onclick = () => setAccessory(k, true);
+  $('accs').append(b);
+});
+setAccessory(cfg.acc, false);
 function toggleSettings(open = $('settings').hidden) {
   $('settings').hidden = !open;
   body.classList.toggle('settings-open', open);
@@ -126,7 +141,8 @@ function toggleSettings(open = $('settings').hidden) {
 $('bSettings').onclick = () => toggleSettings();
 $('bAsk').onclick = () => (askEl ? closeAsk() : openAsk());
 $('bNew').onclick = () => newSession();
-$('bReset').onclick = () => resetConversation(active);
+$('bReset').onclick = () => confirmReset(active);
+$('bResume').onclick = () => openResume();
 $('bMin').onclick = () => gota.minimize();
 $('bQuit').onclick = () => api.quit();
 // Preferencias que guarda el proceso principal (también se cambian desde la bandeja).
@@ -211,7 +227,7 @@ function openAsk() {
   api.prewarm(active.id);
   const menu = commandMenu(ta);
   askEl.prepend(menu.el);
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.react('curious', 800); menu.update(); });
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
@@ -220,6 +236,9 @@ function openAsk() {
   b.onclick = () => {
     const v = ta.value.trim();
     if (!v) return;
+    const cmd = parseSlash(v);
+    if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear')) { runLocal(cmd.name); return; }
+    if (isCompliment(v)) gota.compliment();
     const cap = attached;
     attached = null; // pasa a la pregunta: ya no se descarta al cerrar
     ask(active, v, cap);
@@ -240,6 +259,7 @@ function commandMenu(ta) {
   el.hidden = true;
   let items = [], sel = 0;
   const pick = c => {
+    if (c.kind === 'local') { el.hidden = true; runLocal(c.name); return; }
     ta.value = '/' + c.name + ' ';
     el.hidden = true;
     ta.focus();
@@ -286,8 +306,20 @@ function commandMenu(ta) {
   };
 }
 
+// Un mensaje corto con un cumplido para Astro ("eres lindo", "te quiero"…). Claude responde igual.
+function isCompliment(text) {
+  const t = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return t.length <= 60 && /\b(te quiero|te amo|lind[oa]|bonit[oa]|tiern[oa]|adorable|precios[oa]|cute|eres (el|la) mejor|eres genial)\b/.test(t);
+}
 // Cerrar la pregunta sin enviarla descarta la captura adjunta.
 function closeAsk() { if (askEl) askEl.remove(); askEl = null; detachCapture(); }
+
+// Comandos que resuelve Astro sin llamar a Claude.
+function runLocal(name) {
+  closeAsk();
+  if (name === 'resume') openResume();
+  else if (name === 'clear') confirmReset(active);
+}
 
 /* ---------- capturas de pantalla ---------- */
 // Una captura se ofrece en una nube y solo viaja a Claude si se usa en una pregunta; si no, se descarta.
@@ -565,10 +597,13 @@ async function runAgent(s, a) {
   }
 }
 
+// Respuesta con el formato de Astro; si Claude respondió con texto plano (p. ej. /cost), se adapta.
 function validData(r) {
   const data = r && r.data;
-  if (!data || !Array.isArray(data.lines) || !data.lines.length) throw { code: 'bad' };
-  return data;
+  if (data && Array.isArray(data.lines) && data.lines.length) return data;
+  const text = String((r && r.text) || '').trim();
+  if (!text) throw { code: 'bad' };
+  return plainReply(text);
 }
 function setBusy(s, b) {
   s.busy = b;
@@ -590,8 +625,8 @@ function softData(r) { try { return validData(r); } catch { return null; } }
 async function ask(s, text, capture = null) {
   if (s.busy) return;
   const cmd = capture ? null : parseSlash(text);
-  // /clear lo hace Astro: reinicia la sesión con su animación, sin llamar a Claude.
-  if (cmd && cmd.name === 'clear') { if (s === active) closeAsk(); resetConversation(s); return; }
+  // /clear lo hace Astro: pide confirmación y reinicia la sesión, sin llamar a Claude.
+  if (cmd && cmd.name === 'clear') { if (s === active) closeAsk(); confirmReset(s); return; }
   setBusy(s, true);
   s.stopped = false;
   if (s === active) { closeAsk(); closePanel(); }
@@ -666,6 +701,28 @@ async function ask(s, text, capture = null) {
   setTimeout(() => { if (!s.busy) setMood(s, 'neutral'); }, 2600);
 }
 
+// Reiniciar pide confirmación si hay algo que perder de vista. La conversación no se borra:
+// queda guardada en Claude Code y se puede retomar con /resume.
+let confirmEl = null;
+function confirmReset(s) {
+  if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
+  if (!s.history.length && !s.claudeId) { resetConversation(s); return; }
+  if (s !== active) return;
+  if (confirmEl) confirmEl.remove();
+  closeAsk();
+  const c = cloud(s, 'confirm');
+  confirmEl = c;
+  c.innerHTML = '<h3></h3><p></p><div class="row"><button class="btn yes">Sí, reiniciar</button><button class="opt no">Cancelar</button></div>';
+  c.querySelector('h3').textContent = `¿Reinicio «${s.name}»?`;
+  c.querySelector('p').textContent = 'Empezamos de cero. Esta conversación queda guardada y puedes retomarla con /resume.';
+  const done = () => { c.remove(); if (confirmEl === c) confirmEl = null; };
+  c.querySelector('.yes').onclick = () => { done(); resetConversation(s); };
+  c.querySelector('.no').onclick = () => { done(); gota.act('nod'); };
+  c.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(); } });
+  gota.react('worried', 1200);
+  c.querySelector('.no').focus();
+}
+
 function resetConversation(s) {
   if (s.busy) return;
   s.claudeId = null; s.history.length = 0;
@@ -674,6 +731,92 @@ function resetConversation(s) {
   clearClouds(s); clearAgents(s);
   gota.act('spin');
   greet(s, 'Página en blanco. ¿Qué hacemos ahora?');
+}
+
+/* ---------- retomar conversaciones (/resume) ---------- */
+const relTime = (() => {
+  const rtf = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
+  const steps = [[60, 'second'], [60, 'minute'], [24, 'hour'], [7, 'day'], [4.35, 'week'], [12, 'month'], [Infinity, 'year']];
+  return ms => {
+    let v = (ms - Date.now()) / 1000;
+    for (const [n, unit] of steps) { if (Math.abs(v) < n) return rtf.format(Math.round(v), unit); v /= n; }
+    return '';
+  };
+})();
+const shortName = text => { const n = String(text).replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '); return n.length > 22 ? n.slice(0, 21) + '…' : n; };
+
+async function openResume() {
+  if (gota.isMinimized()) { restoreThen(openResume); return; }
+  closeAsk(); toggleSettings(false);
+  panelAgent = null;
+  openShell('Retomar una conversación', 'Buscando…', blobIco(active.color));
+  const pb = $('pbody');
+  pb.innerHTML = '<p class="muted">Leyendo las conversaciones guardadas…</p>';
+  let res;
+  try { res = await api.history(); } catch (e) { res = { ok: false, message: e.message, items: [] }; }
+  if (!body.classList.contains('panel-open') || $('ptitle').textContent !== 'Retomar una conversación') return;
+  const items = res.items || [];
+  $('psub').textContent = res.ok
+    ? `${items.length === 1 ? '1 conversación' : items.length + ' conversaciones'} en ${res.folder}`
+    : 'No pude leer las conversaciones';
+  pb.innerHTML = '';
+  if (!res.ok) { pb.innerHTML = '<p class="muted"></p>'; pb.firstChild.textContent = res.message || 'Error desconocido'; return; }
+  if (!items.length) { pb.innerHTML = '<p class="muted">Aún no hay conversaciones guardadas en esta carpeta.</p>'; return; }
+  const search = document.createElement('input');
+  search.type = 'search'; search.className = 'search'; search.placeholder = 'Buscar por tema…';
+  search.setAttribute('aria-label', 'Buscar conversación');
+  const listEl = document.createElement('div');
+  listEl.className = 'convos';
+  pb.append(search, listEl);
+  const paint = () => {
+    const q = search.value.trim().toLowerCase();
+    listEl.innerHTML = '';
+    for (const c of items) {
+      if (q && !(c.title + ' ' + c.last).toLowerCase().includes(q)) continue;
+      const open = sessions.find(x => x.claudeId === c.id);
+      const b = document.createElement('button');
+      b.className = 'convo';
+      b.innerHTML = '<b></b><small class="meta"></small><small class="last"></small>';
+      b.querySelector('b').textContent = c.title;
+      const kind = c.astro ? 'Astro' : 'Terminal';
+      b.querySelector('.meta').textContent = `${relTime(c.mtime)} · ${kind} · ${c.questions === 1 ? '1 pregunta' : c.questions + ' preguntas'}${open ? ` · abierta en «${open.name}»` : ''}`;
+      const last = b.querySelector('.last');
+      if (c.last && c.last !== c.title) last.textContent = 'Última: ' + c.last; else last.remove();
+      b.onclick = () => { if (open) { closePanel(); switchTo(open); } else resumeInto(active, c); };
+      listEl.append(b);
+    }
+    if (!listEl.childElementCount) listEl.innerHTML = '<p class="muted">Nada coincide con esa búsqueda.</p>';
+  };
+  search.addEventListener('input', paint);
+  paint();
+  search.focus();
+}
+
+// La sesión activa pasa a la conversación guardada y muestra dónde se quedó.
+async function resumeInto(s, c) {
+  if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
+  closePanel();
+  api.resumeConversation(s.id, c.id);
+  s.claudeId = c.id;
+  const data = c.data || (c.lastText ? plainReply(c.lastText) : null);
+  s.history = [];
+  if (c.last) s.history.push({ role: 'user', text: c.last });
+  if (data) s.history.push({ role: 'bot', data });
+  if (s !== sessions[0]) { s.renamed = true; s.name = shortName(c.title) || s.name; renderSessions(); }
+  clearClouds(s); clearAgents(s);
+  const note = cloud(s, 'notify');
+  const strong = document.createElement('strong'); strong.textContent = 'Retomé esta conversación';
+  note.append(strong);
+  if (c.title !== c.last) { const span = document.createElement('span'); span.textContent = c.title; note.append(span); }
+  if (c.last) { const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = c.last; s.clouds.append(you); }
+  if (data) {
+    for (const line of data.lines.slice(0, 2)) { const l = cloud(s); l.textContent = String(line); }
+    const sheets = buildSheets(data);
+    if (sheets.length) showSheetsButton(s, sheets, data.title);
+    if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);
+  }
+  stickToBottom(s);
+  if (s === active) { gota.act('hop'); gota.react('happy', 1400); }
 }
 
 /* ---------- gestión de sesiones ---------- */
@@ -796,8 +939,10 @@ api.on('astro:summon', () => {
   askEl ? closeAsk() : openAsk();
 });
 api.on('astro:minimize', () => gota.minimize());
+api.on('astro:welcome-back', () => gota.welcomeBack());
 api.on('astro:new', () => newSession());
-api.on('astro:reset', () => resetConversation(active));
+api.on('astro:reset', () => confirmReset(active));
+api.on('astro:resume', () => (gota.isMinimized() ? restoreThen(openResume) : openResume()));
 
 /* ---------- inicio ---------- */
 async function greet(s, text) {
@@ -835,6 +980,11 @@ if (new URLSearchParams(location.search).has('debug')) {
     switchTo: i => switchTo(sessions[i]),
     closeSession: i => closeSession(sessions[i]),
     say: text => { const c = cloud(active); c.textContent = text; },
+    setCommands: list => { commands = list; },
+    fakeHistory: () => { active.history.push({ role: 'user', text: 'prueba' }); },
+    openAsk,
+    openResume,
+    resumeFirst: async () => { const r = await api.history(); if (r.items[0]) resumeInto(active, r.items.find(c => c.astro) || r.items[0]); return r.items.length; },
     thinking: (status = 'Leyendo main.js…') => { const t = thinkingCloud(active); t.querySelector('.status').textContent = status; },
     fakeAgents(withError = false, sessionIndex) {
       const s = sessionIndex === undefined ? active : sessions[sessionIndex];

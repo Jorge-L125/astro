@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -14,6 +14,7 @@ const { createPrefs } = require('./src/prefs');
 const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
+const { listConversations } = require('./src/history');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
 // avisa a la primera, que se muestra con la pregunta abierta ('second-instance'), y termina antes
@@ -81,7 +82,7 @@ let tray = null;
 const running = new Map(); // id de petición -> función para cancelarla
 const conversations = new Map(); // id de sesión de la interfaz -> proceso de Claude Code que la atiende
 const prefs = createPrefs(app.getPath('userData'));
-const commands = createCommandStore(app.getPath('userData'));
+const commands = createCommandStore(app.getPath('userData'), { home: os.homedir(), cwd: config.workingDirectory });
 
 /* ---------- capturas de pantalla ---------- */
 // Electron 44 tiene un portapapeles asíncrono al estilo de navigator.clipboard.
@@ -167,6 +168,23 @@ function endConversation(conv) {
   const s = conversations.get(conv);
   if (s) { s.close(); conversations.delete(conv); }
 }
+// Retomar: la sesión de la interfaz pasa a atender una conversación guardada. El proceso arranca ya
+// (con --resume) para que la primera pregunta no espere al CLI.
+function resumeConversation(conv, sessionId) {
+  endConversation(conv);
+  const s = createClaudeSession({ ...askOpts(), resume: sessionId });
+  conversations.set(conv, config.warmPool ? s.warm() : s);
+}
+
+// Cada conversación nueva anuncia sus comandos "/"; si cambiaron, la interfaz recibe la lista nueva.
+function relayEvent(id, ev) {
+  if (ev.type === 'start') {
+    // La lista de comandos / es grande: solo viaja a la interfaz si cambió.
+    if (commands.update(ev)) send('astro:commands', commands.get());
+    ev = { type: 'start', sessionId: ev.sessionId };
+  }
+  send('claude:event', { id, ...ev });
+}
 
 function track(id, handle) {
   running.set(id, handle.cancel);
@@ -247,6 +265,7 @@ function buildTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Preguntar a Astro', accelerator: config.shortcut, click: summon },
     { label: 'Nueva sesión', click: () => send('astro:new') },
+    { label: 'Retomar una conversación…', click: () => { summon(); send('astro:resume'); } },
     { label: 'Reiniciar esta conversación', click: () => send('astro:reset') },
     { label: 'Minimizar a gota', click: () => send('astro:minimize') },
     { type: 'separator' },
@@ -296,14 +315,7 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId }
   }
   let handle;
   try {
-    handle = conversationFor(conv, resume).send(prompt, ev => {
-      if (ev.type === 'start') {
-        // La lista de comandos / es grande: solo viaja a la interfaz si cambió.
-        if (commands.update(ev)) send('astro:commands', commands.get());
-        ev = { type: 'start', sessionId: ev.sessionId };
-      }
-      send('claude:event', { id, ...ev });
-    });
+    handle = conversationFor(conv, resume).send(prompt, ev => relayEvent(id, ev));
   } catch (e) {
     return { ok: false, code: e.code || 'not_found', message: e.message };
   }
@@ -319,7 +331,7 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId }
 ipcMain.handle('claude:agent', (_e, { id, name, task, transcript }) => {
   let s;
   try { s = agentPool.take(); } catch (e) { return { ok: false, code: e.code || 'not_found', message: e.message }; }
-  const handle = s.send(agentPrompt(name, task, transcript), ev => send('claude:event', { id, ...ev }));
+  const handle = s.send(agentPrompt(name, task, transcript), ev => relayEvent(id, ev));
   return toReply(track(id, handle).finally(() => s.close()), r => ({ text: r.text }));
 });
 
@@ -329,6 +341,16 @@ ipcMain.on('claude:cancel', (_e, id) => {
 });
 ipcMain.on('claude:end', (_e, conv) => endConversation(conv));
 ipcMain.on('claude:prewarm', (_e, conv) => warmFor(conv));
+ipcMain.on('claude:resume', (_e, { conv, sessionId }) => {
+  if (typeof sessionId === 'string' && /^[\w-]{8,80}$/.test(sessionId)) resumeConversation(conv, sessionId);
+});
+ipcMain.handle('history:list', () => {
+  try {
+    return { ok: true, folder: config.workingDirectory, items: listConversations({ claudeHome: path.join(os.homedir(), '.claude'), cwd: config.workingDirectory }) };
+  } catch (e) {
+    return { ok: false, message: e.message, items: [] };
+  }
+});
 
 /* ---------- arranque ---------- */
 app.on('second-instance', summon);
@@ -358,7 +380,18 @@ app.whenReady().then(() => {
     if (process.env.ASTRO_DEBUG) console.log('[astro] Carpeta de capturas:', dir || '(no encontrada; solo portapapeles)');
     captures.setFolder(dir);
   });
+  watchReturn();
 });
+
+// Si el equipo pasa 5 minutos sin teclado ni ratón, Astro saluda cuando vuelves.
+function watchReturn() {
+  let away = false;
+  setInterval(() => {
+    const idle = powerMonitor.getSystemIdleTime();
+    if (idle >= 300) away = true;
+    else if (away && idle < 5) { away = false; send('astro:welcome-back'); }
+  }, 5000).unref();
+}
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
