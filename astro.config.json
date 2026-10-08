@@ -7,5 +7,5 @@
   "permissionMode": "default",
   "notifyPort": 4545,
   "warmPool": true,
-  "idleMinutes": 10
+  "idleMinutes": 5
 }

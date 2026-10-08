@@ -20,7 +20,12 @@ let turn = 0;
 
 function reply(content) {
   turn++;
-  out({ type: 'system', subtype: 'init', session_id: sessionId });
+  out({
+    type: 'system', subtype: 'init', session_id: sessionId,
+    slash_commands: ['clear', 'context', 'code-review', 'ultrareview', 'vim'],
+    skills: ['code-review'],
+    terminal_slash_commands: ['vim'],
+  });
   if (content === 'slow') return;
   if (content === 'crash') { process.stderr.write('boom'); process.exit(3); }
   out({ type: 'assistant', message: { content: [

@@ -19,6 +19,15 @@ test('convierte listas, títulos y párrafos', async () => {
   assert.equal(md(null), '');
 });
 
+test('convierte tablas, aunque vengan pegadas a un título', async () => {
+  const { md } = await load();
+  const html = md('### Uso\n| Categoría | Tokens |\n|---|---|\n| Sistema | **3k** |\nTotal abajo');
+  assert.equal(html,
+    '<h4>Uso</h4><div class="tbl"><table><thead><tr><th>Categoría</th><th>Tokens</th></tr></thead>'
+    + '<tbody><tr><td>Sistema</td><td><strong>3k</strong></td></tr></tbody></table></div><p>Total abajo</p>');
+  assert.match(md('| <b> | x |'), /&lt;b&gt;/, 'las celdas también se escapan');
+});
+
 test('buildSheets reparte el detalle sin partir párrafos y pone el código aparte', async () => {
   const { buildSheets } = await load();
   const big = 'x'.repeat(400), small = 'y'.repeat(200);

@@ -31,6 +31,40 @@ test('envía bloques de contenido (imagen + texto) tal cual', async t => {
   assert.deepEqual(r.structured.echo, content);
 });
 
+test('el inicio de cada turno trae los comandos / que anuncia Claude Code', async t => {
+  const s = session();
+  t.after(() => s.close());
+  const events = [];
+  await s.send('hola', ev => events.push(ev)).done;
+  const start = events.find(e => e.type === 'start');
+  assert.deepEqual(start.slashCommands, ['clear', 'context', 'code-review', 'ultrareview', 'vim']);
+  assert.deepEqual(start.skills, ['code-review']);
+  assert.deepEqual(start.terminalCommands, ['vim']);
+});
+
+test('/model se recuerda aunque el proceso se relance', async t => {
+  const s = session({ model: 'sonnet' });
+  t.after(() => s.close());
+  await s.send('/model haiku').done;
+  assert.equal(s.model, 'haiku');
+  const h = s.send('slow');
+  await delay(100);
+  h.cancel(); // fuerza un proceso nuevo en el siguiente turno
+  await assert.rejects(h.done, { code: 'cancelled' });
+  const r = await s.send('sigue').done;
+  const args = r.structured.args;
+  assert.equal(args[args.indexOf('--model') + 1], 'haiku');
+});
+
+test('setIdle cambia cuándo se cierra el proceso sin uso', async t => {
+  const s = session({ idleMs: 60 * 60 * 1000 });
+  t.after(() => s.close());
+  await s.send('hola').done;
+  s.setIdle(80);
+  await delay(250);
+  assert.equal(s.alive, false);
+});
+
 test('emite progreso: inicio, herramientas y texto', async t => {
   const s = session();
   t.after(() => s.close());
