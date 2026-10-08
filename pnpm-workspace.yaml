@@ -1,4 +1,6 @@
 allowBuilds:
   electron: true
+  # Solo hace falta para instaladores Squirrel; Astro usa NSIS.
+  electron-winstaller: false
 minimumReleaseAgeExclude:
   - electron@44.7.0

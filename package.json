@@ -9,7 +9,9 @@
     "test": "node --test \"test/*.test.js\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check": "pnpm lint && pnpm test"
+    "check": "pnpm lint && pnpm test",
+    "dist": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
   },
   "dependencies": {
     "three": "^0.186.1"
@@ -17,10 +19,82 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.12.0",
     "globals": "^17.13.0"
   },
   "engines": {
     "node": ">=22"
+  },
+  "productName": "Astro",
+  "author": "Jorge Largacha",
+  "build": {
+    "appId": "com.jorgelargacha.astro",
+    "productName": "Astro",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "astro.config.json",
+      "package.json",
+      "src/**",
+      "renderer/**",
+      "hooks/**",
+      "!node_modules/three/**",
+      "node_modules/three/package.json",
+      "node_modules/three/build/three.module.js",
+      "node_modules/three/build/three.core.js"
+    ],
+    "asarUnpack": [
+      "hooks/**",
+      "src/runtime-info.js"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Astro",
+      "artifactName": "Astro-Setup-${version}.${ext}",
+      "include": "build/installer.nsh"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.png"
+    },
+    "electronLanguages": [
+      "es",
+      "es-419",
+      "en-US"
+    ],
+    "extraFiles": [
+      {
+        "from": "build/bin",
+        "to": "bin"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "build/path-env.ps1",
+        "to": "path-env.ps1"
+      }
+    ]
   }
 }
