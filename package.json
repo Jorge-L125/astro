@@ -1,6 +1,6 @@
 {
   "name": "astro-bot",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Astro: asistente de escritorio sobre Claude Code",
   "main": "main.js",
   "private": true,
