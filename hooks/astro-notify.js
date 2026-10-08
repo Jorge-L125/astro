@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Hook de Claude Code: avisa a Astro cuando una sesión termina (Stop) o necesita atención (Notification).
-// Se registra en ~/.claude/settings.json; ver README.md.
+// Se registra en ~/.claude/settings.json; ver README.md. El puerto y el token los publica Astro al
+// arrancar (ver src/runtime-info.js); si Astro no está abierto, el hook no hace nada.
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-
-const PORT = Number(process.env.ASTRO_PORT || 4545);
+const { readRuntimeInfo } = require('../src/runtime-info');
 
 // Las llamadas que hace el propio Astro no deben avisarle a sí mismo.
 if (process.env.ASTRO_INTERNAL) process.exit(0);
@@ -24,7 +24,11 @@ function lastAssistantText(transcriptPath) {
   return '';
 }
 
+const info = readRuntimeInfo();
+if (!info || !info.port) process.exit(0);
+
 let input = '';
+process.stdin.setEncoding('utf8');
 process.stdin.on('data', d => { input += d; });
 process.stdin.on('end', () => {
   let hook = {};
@@ -38,8 +42,16 @@ process.stdin.on('end', () => {
     project: hook.cwd ? path.basename(hook.cwd) : '',
     message: String(message).replace(/\s+/g, ' ').slice(0, 280),
   });
-  const req = http.request({ host: '127.0.0.1', port: PORT, path: '/event', method: 'POST', headers: { 'content-type': 'application/json' }, timeout: 1500 });
+  const req = http.request({
+    host: '127.0.0.1',
+    port: info.port,
+    path: '/event',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-astro-token': info.token || '' },
+    timeout: 1500,
+  });
+  req.on('response', res => { res.resume(); res.on('end', () => process.exit(0)); });
   req.on('error', () => process.exit(0));
   req.on('timeout', () => { req.destroy(); process.exit(0); });
-  req.end(body, () => process.exit(0));
+  req.end(body);
 });

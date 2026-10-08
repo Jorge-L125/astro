@@ -477,7 +477,7 @@ export function createGota(host, opts = {}) {
   }
 
   // ---------- bucle ----------
-  const clock = new THREE.Clock();
+  const clock = new THREE.Timer();
   function applyFace(blink, fv) {
     face.visible = fv > 0.01; face.scale.setScalar(Math.max(0.001, fv));
     const setW = (o, w, sx = 1, sy = 1) => { o.visible = w > 0.01; o.scale.set(Math.max(0.001, w * sx), Math.max(0.001, w * sy), Math.max(0.001, w)); };
@@ -734,10 +734,14 @@ export function createGota(host, opts = {}) {
     }
   }
 
+  // Dormida o minimizada casi nada se mueve: basta con ~24 fps y la GPU descansa.
+  const idle = () => (mode === 'sleep' || mode === 'minimized') && !swap && splashT0 < 0 && !hover
+    && !agents.some(a => !a.gone && a.status === 'working');
   (function tick() {
+    clock.update();
     update(clamp(clock.getDelta(), 1e-3, 0.05));
     renderer.render(scene, camera);
-    requestAnimationFrame(tick);
+    if (idle()) setTimeout(tick, 42); else requestAnimationFrame(tick);
   })();
 
   return {

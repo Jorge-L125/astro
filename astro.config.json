@@ -5,5 +5,7 @@
   "claudePath": "claude",
   "allowedTools": ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
   "permissionMode": "default",
-  "notifyPort": 4545
+  "notifyPort": 4545,
+  "warmPool": true,
+  "idleMinutes": 10
 }
