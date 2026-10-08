@@ -288,7 +288,7 @@ body.left-side .settings{right:auto;left:calc(var(--char-w) - 10px);transform-or
 .custom{position:relative;width:28px;height:28px;border-radius:50%;overflow:hidden;border:1.5px dashed var(--muted);display:grid;place-items:center;color:var(--muted);font-size:16px;font-weight:700}
 .custom input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .seg{display:flex;background:var(--desk);border-radius:10px;padding:3px;gap:3px}
-.seg button{flex:1;border:0;background:transparent;border-radius:8px;padding:6px 8px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer}
+.seg button{flex:1 1 auto;border:0;background:transparent;border-radius:8px;padding:6px 6px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
 .seg button[aria-pressed="true"]{background:var(--cloud);color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,.12)}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;border:0;background:transparent;padding:6px 0;cursor:pointer;text-align:left;font-size:13.5px}
 .toggle span{min-width:0}
@@ -323,21 +323,28 @@ body.glass .cloud.notify{border:2px solid var(--accent)}
 body.glass .cloud.perm.risky{border:2px solid color-mix(in srgb,var(--err) 55%,transparent)}
 body.glass .cloud.you{background:color-mix(in srgb,var(--accent) 84%,transparent);
   box-shadow:inset 1.5px 1.5px 0 rgba(255,255,255,.35),inset 0 0 12px rgba(255,255,255,.12),var(--shadow)}
-/* Ajustes, la barra de botones y el panel lateral: vidrio más opaco (se abren sobre las nubes) con un
-   reflejo del color de Astro arriba y el borde del mismo tono, como los interruptores. */
+/* Ajustes, la barra de botones y el panel lateral: el mismo vidrio, algo más opaco porque se abren
+   sobre las nubes. Con «Glass de color» (body.tint) llevan además un reflejo del color de Astro arriba,
+   el borde de ese tono y lo elegido teñido, como los interruptores. */
 body.glass .settings,body.glass .toolbar,body.glass .panel{
-  background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 18%,var(--glass-panel)) 0%,var(--glass-panel) 45%,var(--glass-panel) 75%,color-mix(in srgb,var(--accent) 9%,var(--glass-panel)) 100%);
+  background:linear-gradient(160deg,var(--glass-panel) 0%,color-mix(in srgb,var(--glass-panel) 94%,transparent) 60%,var(--glass-panel) 100%);
   -webkit-backdrop-filter:blur(22px) saturate(1.8);backdrop-filter:blur(22px) saturate(1.8);
-  border:1px solid color-mix(in srgb,var(--accent) 38%,var(--glass-edge));
-  box-shadow:inset 1.5px 1.5px 0 var(--glass-lit),inset 0 0 22px color-mix(in srgb,var(--accent) 12%,transparent),var(--shadow)}
+  border:1px solid var(--glass-edge);
+  box-shadow:inset 1.5px 1.5px 0 var(--glass-lit),inset 0 0 18px color-mix(in srgb,var(--glass-lit) 25%,transparent),var(--shadow)}
 body.glass .panel{border-width:0 0 0 1px}
 body.glass .pbody-wrap{background:transparent}
-body.glass .phead,body.glass .tabs{border-color:color-mix(in srgb,var(--accent) 22%,var(--hair))}
-/* dentro de los paneles de vidrio: grupos translúcidos y lo elegido teñido del color de Astro */
-body.glass .seg{background:color-mix(in srgb,var(--ink) 8%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
-body.glass .seg button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 24%,var(--glass-panel));color:var(--ink);box-shadow:inset 1px 1px 0 var(--glass-lit),0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
-body.glass .accs button,body.glass .tool,body.glass .quit{background:color-mix(in srgb,var(--glass-lit) 8%,transparent);border-color:color-mix(in srgb,var(--accent) 22%,var(--hair))}
-body.glass .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
+body.glass .seg{background:color-mix(in srgb,var(--ink) 8%,transparent)}
+body.glass .seg button[aria-pressed="true"]{background:color-mix(in srgb,var(--glass-lit) 35%,var(--glass-panel));color:var(--ink);box-shadow:inset 1px 1px 0 var(--glass-lit),0 1px 4px rgba(0,0,0,.12)}
+body.glass .accs button,body.glass .tool,body.glass .quit{background:color-mix(in srgb,var(--glass-lit) 8%,transparent)}
 body.glass .sheet{background:color-mix(in srgb,var(--sheet) 88%,transparent)}
+body.tint .settings,body.tint .toolbar,body.tint .panel{
+  background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 18%,var(--glass-panel)) 0%,var(--glass-panel) 45%,var(--glass-panel) 75%,color-mix(in srgb,var(--accent) 9%,var(--glass-panel)) 100%);
+  border-color:color-mix(in srgb,var(--accent) 38%,var(--glass-edge));
+  box-shadow:inset 1.5px 1.5px 0 var(--glass-lit),inset 0 0 22px color-mix(in srgb,var(--accent) 12%,transparent),var(--shadow)}
+body.tint .phead,body.tint .tabs{border-color:color-mix(in srgb,var(--accent) 22%,var(--hair))}
+body.tint .seg{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
+body.tint .seg button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 24%,var(--glass-panel));box-shadow:inset 1px 1px 0 var(--glass-lit),0 0 0 1px color-mix(in srgb,var(--accent) 45%,transparent)}
+body.tint .accs button,body.tint .tool,body.tint .quit{border-color:color-mix(in srgb,var(--accent) 22%,var(--hair))}
+body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

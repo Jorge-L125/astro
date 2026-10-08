@@ -105,7 +105,7 @@ Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
 
 - **Color de esta sesión**, **posición** (izquierda o derecha) y **tema** (automático, claro u oscuro).
 - **Accesorio:** gorro de Navidad, manta de fantasma, capa de vampiro, sombrero de bruja, de fiesta o de vaquero. Cada uno tiene su reacción; las puntas de los gorros se balancean al moverse.
-- **Cajas:** *Glass* (por defecto) hace translúcidas las nubes, con reflejos en el borde, y pasa Ajustes, la barra de botones y el panel lateral a un vidrio teñido con el color de Astro; *Sólido* lo deja todo opaco. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás: los paneles son algo más opacos para que no se mezclen con las nubes.
+- **Cajas:** *Glass* (por defecto) hace translúcidas las nubes, Ajustes, la barra de botones y el panel lateral, con reflejos en el borde; *Glass de color* además tiñe Ajustes, la barra y el panel con el color de Astro; *Sólido* lo deja todo opaco. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás: los paneles son algo más opacos para que no se mezclen con las nubes.
 - **Siempre encima de las ventanas:** por defecto Astro flota sobre todo. Si lo apagas, queda detrás de las ventanas que uses y vuelve al frente al llamarlo o al detectar una captura.
 - **Detectar capturas de pantalla.**
 
