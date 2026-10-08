@@ -12,6 +12,8 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 // Estados de ánimo de la interfaz -> expresión de la cara.
 const MOOD_EXPR = { neutral: 'neutral', happy: 'happy', thinking: 'thinking', surprised: 'surprised', worried: 'worried', talking: 'neutral', delegating: 'focus' };
 // Posiciones de las sesiones que esperan detrás: [x, y, z, escala].
+// Mini-gotas en el anillo interior antes de pasar al exterior.
+const INNER = 8;
 const SLOTS = [[-1.05, 1.0, -1.4, 0.48], [1.05, 1.0, -1.4, 0.48], [0, 1.6, -2.5, 0.42], [-1.8, 1.5, -2.7, 0.4], [1.8, 1.5, -2.7, 0.4]];
 
 export function createGota(host, opts = {}) {
@@ -743,9 +745,14 @@ export function createGota(host, opts = {}) {
       if (a.gone) continue;
       if (a.sid !== activeId) { a.m.visible = false; a.ring.visible = false; a.vis = 0; continue; }
       a.vis = lerp(a.vis, visT, 1 - Math.exp(-8 * dt));
-      const idx = Math.max(0, orbiting.indexOf(a)), n = Math.max(1, orbiting.length);
-      const ang = T * 1.3 + idx * Math.PI * 2 / n;
-      _v.set(center.x + Math.cos(ang) * 1.5, center.y + 0.15 + Math.sin(ang) * 0.32 + Math.sin(T * 3 + a.id) * 0.05, Math.sin(ang) * 1.0);
+      // Hasta 8 en el anillo interior; el resto en uno exterior, más pequeñas y girando al revés.
+      const idx = Math.max(0, orbiting.indexOf(a)), outer = idx >= INNER;
+      const n = outer ? Math.max(1, orbiting.length - INNER) : Math.min(INNER, Math.max(1, orbiting.length));
+      const k = outer ? idx - INNER : idx;
+      const ang = outer ? -T * 0.8 + k * Math.PI * 2 / n + 0.3 : T * 1.3 + k * Math.PI * 2 / n;
+      const [rx, ry, rz] = outer ? [1.9, 0.78, 1.3] : [1.5, 0.32, 1.0];
+      a.ringScale = outer ? 0.78 : 1;
+      _v.set(center.x + Math.cos(ang) * rx, center.y + 0.15 + Math.sin(ang) * ry + Math.sin(T * 3 + a.id) * 0.05, Math.sin(ang) * rz);
       const e = easeOut(clamp((T - a.born) / 0.6));
       _v.lerpVectors(center, _v, e);
       let s = e;
@@ -760,7 +767,7 @@ export function createGota(host, opts = {}) {
       const hl = highlightId === a.id ? 1.45 : 1;
       a.mat.emissiveIntensity = lerp(a.mat.emissiveIntensity, highlightId === a.id && a.status !== 'error' ? 0.45 : 0, 0.2);
       a.m.position.copy(a.pos);
-      const sc = Math.max(0.001, s * a.vis * hl);
+      const sc = Math.max(0.001, s * a.vis * hl * (a.ringScale || 1));
       a.m.scale.set(sc, sc * (1 + 0.07 * Math.sin(T * 8 + a.id)), sc);
       a.m.visible = sc > 0.01;
       // ondas alrededor de la gota minimizada, una por ayudante activo

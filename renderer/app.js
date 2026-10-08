@@ -43,7 +43,7 @@ function mkSession(name, color, folder = null) {
   const clouds = document.createElement('div');
   clouds.className = 'clouds';
   clouds.setAttribute('aria-live', 'polite');
-  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder };
+  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder, steps: [], stepsT0: 0 };
 }
 const sessions = [];
 let active = mkSession('Principal', cfg.color);
@@ -419,12 +419,13 @@ function showChoice(s, choice) {
 const blobIco = c => `<svg viewBox="0 0 40 40"><path d="M20 3c6 7 13 13 13 21a13 13 0 0 1-26 0C7 16 14 10 20 3z" fill="${c}"/><rect x="14" y="20" width="3.4" height="7" rx="1.7" fill="#141416"/><rect x="22.6" y="20" width="3.4" height="7" rx="1.7" fill="#141416"/></svg>`;
 let panelAgent = null;
 function openShell(title, sub, ico) {
+  panelSteps = null;
   $('ptitle').textContent = title; $('ptitle').title = title; $('psub').textContent = sub; $('pico').innerHTML = ico;
   $('tabs').innerHTML = ''; $('tabs').hidden = true;
   $('pbody').innerHTML = ''; $('pbody').scrollTop = 0;
   body.classList.add('panel-open'); $('panel').setAttribute('aria-hidden', 'false');
 }
-function closePanel() { body.classList.remove('panel-open'); $('panel').setAttribute('aria-hidden', 'true'); panelAgent = null; }
+function closePanel() { body.classList.remove('panel-open'); $('panel').setAttribute('aria-hidden', 'true'); panelAgent = null; panelSteps = null; }
 $('close').onclick = closePanel;
 
 function showSheetsButton(s, sheets, title) {
@@ -434,6 +435,14 @@ function showSheetsButton(s, sheets, title) {
   b.querySelector('b').textContent = sheets.length;
   b.querySelector('small').textContent = sheets.length === 1 ? '1 hoja' : sheets.length + ' hojas';
   b.onclick = () => openSheets(sheets, title);
+  s.clouds.append(b);
+  stickToBottom(s);
+}
+function showStepsButton(s) {
+  const b = document.createElement('button');
+  b.className = 'stepsbtn hit';
+  b.textContent = `🧭 Ver los ${s.steps.length === 1 ? 'pasos (1)' : s.steps.length + ' pasos'}`;
+  b.onclick = () => openSteps(s);
   s.clouds.append(b);
   stickToBottom(s);
 }
@@ -487,7 +496,8 @@ function renderTasks(s) {
   s.tasksEl.innerHTML = '';
   const ttl = document.createElement('p');
   ttl.className = 'ttl';
-  ttl.textContent = n ? `Ayudantes · ${n} trabajando` : 'Ayudantes · terminaron';
+  const who = s.agents.every(a => a.internal) ? 'Subagentes' : 'Ayudantes';
+  ttl.textContent = n ? `${who} · ${n} trabajando` : `${who} · terminaron`;
   s.tasksEl.append(ttl);
   if (n) {
     const stop = stopButton(s);
@@ -521,7 +531,7 @@ function setAgentStatus(s, a, status) {
   renderTasks(s);
   if (panelAgent === a) renderAgent(a);
 }
-function openAgent(a) { panelAgent = a; openShell('Ayudante · ' + a.name, '', blobIco(a.color)); renderAgent(a); }
+function openAgent(a) { openShell((a.internal ? 'Subagente · ' : 'Ayudante · ') + a.name, '', blobIco(a.color)); panelAgent = a; renderAgent(a); }
 function renderAgent(a) {
   $('psub').textContent = a.status === 'working' ? 'Trabajando ahora' : a.status === 'done' ? 'Tarea terminada' : 'No pudo terminar';
   const pb = $('pbody');
@@ -530,7 +540,8 @@ function renderAgent(a) {
     <span class="status-chip ${a.status === 'done' ? 'ok' : a.status === 'error' ? 'err' : ''}">${a.status === 'working' ? '● Trabajando' : a.status === 'done' ? '✓ Terminado' : '! Error'}</span>
     ${a.status === 'working' && a.activity ? `<p class="activity">${esc(a.activity)}…</p>` : ''}</article>
     <article class="sheet"><p class="label">${a.status === 'working' ? 'Lo que lleva hasta ahora' : 'Resultado'}</p>
-    <div class="${a.status === 'working' ? 'caret' : ''}">${a.output ? md(a.output) : '<p style="color:var(--muted)">Analizando la tarea…</p>'}</div></article>`;
+    <div class="${a.status === 'working' ? 'caret' : ''}">${a.output ? md(a.output) : '<p style="color:var(--muted)">Analizando la tarea…</p>'}</div></article>
+    ${a.steps && a.steps.length ? `<article class="sheet"><p class="label">Pasos (${a.steps.length})</p><ol class="steps">${a.steps.map(st => `<li><span class="ico">${esc(st.icon)}</span><span>${esc(st.text)}</span></li>`).join('')}</ol></article>` : ''}`;
   if (atBottom) pb.scrollTop = pb.scrollHeight;
 }
 function clearAgents(s) { s.agents = []; renderTasks(s); gota.clearAgents(s.id); }
@@ -580,15 +591,125 @@ function thinkingCloud(s) {
   t.append(stopButton(s));
   return t;
 }
-const progressInto = el => ev => {
-  if (ev.type === 'tool') { const st = el.querySelector('.status'); if (st) st.textContent = ev.label + '…'; }
+/* ---------- pasos de Claude y sus subagentes ---------- */
+// Todo lo que hace Claude mientras responde queda en s.steps para seguirlo en vivo en el panel.
+let panelSteps = null;
+const TOOL_ICON = { Read: '📖', Glob: '🔍', Grep: '🔍', Edit: '✏️', MultiEdit: '✏️', Write: '📝', NotebookEdit: '✏️', Bash: '💻', PowerShell: '💻', WebFetch: '🌐', WebSearch: '🔎', Agent: '🤖', Task: '🤖', TodoWrite: '🗒️', Skill: '🧩' };
+// Si Claude escribe su respuesta en el formato de Astro (JSON), se toma su primera frase.
+const sayLine = (text, structured) => {
+  let data = structured;
+  if (!data && /^\s*\{/.test(String(text || ''))) { try { data = JSON.parse(text); } catch { return ''; } }
+  if (data && Array.isArray(data.lines) && data.lines.length) return firstLine(data.lines[0]);
+  return data ? '' : firstLine(text);
+};
+const firstLine = text => { const l = String(text || '').split('\n').map(x => x.replace(/^[#>*\-\s]+/, '').trim()).find(Boolean) || ''; return l.length > 140 ? l.slice(0, 139) + '…' : l; };
+const clock = ms => { const sec = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`; };
+function addStep(s, step) {
+  s.steps.push({ at: Date.now(), ...step });
+  if (s.stepsLink) s.stepsLink.textContent = `Ver pasos (${s.steps.length})`;
+  if (panelSteps === s) renderSteps(s);
+}
+function openSteps(s) {
+  openShell('Pasos de Claude', '', blobIco(s.color));
+  panelSteps = s;
+  renderSteps(s);
+}
+function renderSteps(s) {
+  const working = s.busy;
+  $('psub').textContent = `${s.steps.length === 1 ? '1 paso' : s.steps.length + ' pasos'} · ${working ? 'trabajando' : 'terminado'}`;
+  const pb = $('pbody');
+  const atBottom = pb.scrollHeight - pb.scrollTop - pb.clientHeight < 40;
+  pb.innerHTML = '';
+  const ol = document.createElement('ol');
+  ol.className = 'steps live';
+  for (const st of s.steps) {
+    const li = document.createElement('li');
+    li.innerHTML = '<time></time><span class="ico"></span><span class="txt"></span>';
+    li.querySelector('time').textContent = clock(st.at - s.stepsT0);
+    li.querySelector('.ico').textContent = st.icon;
+    li.querySelector('.txt').textContent = st.text;
+    if (st.agent) {
+      li.classList.add('sub');
+      li.style.setProperty('--c', st.agent.color);
+      li.title = `${st.agent.name}: ver su detalle`;
+      li.onclick = () => openAgent(st.agent);
+    }
+    ol.append(li);
+  }
+  if (working) { const li = document.createElement('li'); li.className = 'now'; li.innerHTML = '<span class="dots"><i></i><i></i><i></i></span>'; ol.append(li); }
+  pb.append(ol);
+  if (atBottom) pb.scrollTop = pb.scrollHeight;
+}
+// Enlace «Ver pasos» en la nube de pensando.
+function stepsLink(s, t) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'stepslink';
+  b.textContent = `Ver pasos (${s.steps.length})`;
+  b.onclick = () => openSteps(s);
+  t.querySelector('.status').after(b);
+  s.stepsLink = b;
+}
+// Cuántos subagentes de Claude siguen trabajando, para la línea de estado.
+const subWorking = s => s.agents.filter(a => a.internal && a.status === 'working').length;
+const progressInto = (el, s) => ev => {
+  const st = el.querySelector('.status');
+  const say = text => { if (st) st.textContent = text; };
+  const find = key => s.agents.find(a => a.key === key);
+  if (ev.type === 'tool') {
+    // Lanzar un subagente ya tiene su propio paso y su estado («N subagentes trabajando»).
+    if (ev.name === 'Agent' || ev.name === 'Task') return;
+    say(ev.label + '…');
+    addStep(s, { icon: TOOL_ICON[ev.name] || '🔧', text: ev.label });
+  } else if (ev.type === 'text') {
+    const l = sayLine(ev.text);
+    if (l) addStep(s, { icon: '💬', text: l });
+  } else if (ev.type === 'partial') {
+    const l = sayLine(ev.text, ev.structured);
+    if (l) { addStep(s, { icon: '💬', text: l }); say(`${l} · esperando a ${subWorking(s) || 'los'} subagente${subWorking(s) === 1 ? '' : 's'}…`); }
+  } else if (ev.type === 'agent-start') {
+    const a = {
+      id: ++agentSeq, key: ev.key, internal: true, name: String(ev.name || 'Subagente').slice(0, 40), task: ev.task || '', kind: ev.kind || '',
+      color: AGENT_COLORS[(agentSeq - 1) % AGENT_COLORS.length], status: 'working', output: '', activity: '', steps: [],
+    };
+    s.agents.push(a);
+    gota.spawnAgent(a.id, a.color, s.id);
+    if (s === active && gota.react) gota.react('focus', 900);
+    renderTasks(s);
+    addStep(s, { icon: '🤖', text: `Lanzó a «${a.name}»`, agent: a });
+    say(`${subWorking(s)} subagente${subWorking(s) === 1 ? '' : 's'} trabajando…`);
+  } else if (ev.type === 'agent-tool') {
+    const a = find(ev.key); if (!a) return;
+    a.activity = ev.label;
+    a.steps.push({ icon: TOOL_ICON[ev.name] || '🔧', text: ev.label });
+    addStep(s, { icon: TOOL_ICON[ev.name] || '🔧', text: `${a.name}: ${ev.label}`, agent: a });
+    renderTasks(s);
+    if (panelAgent === a) renderAgent(a);
+  } else if (ev.type === 'agent-text') {
+    const a = find(ev.key); if (!a) return;
+    a.output = (a.output ? a.output + '\n\n' : '') + ev.text;
+    a.steps.push({ icon: '💬', text: firstLine(ev.text) });
+    if (panelAgent === a) renderAgent(a);
+  } else if (ev.type === 'agent-end') {
+    const a = find(ev.key); if (!a || a.status !== 'working') return;
+    if (ev.text) a.output = ev.text;
+    a.activity = '';
+    addStep(s, { icon: ev.ok ? '✓' : '!', text: `«${a.name}» ${ev.ok ? 'terminó' : 'no pudo terminar'}`, agent: a });
+    setAgentStatus(s, a, ev.ok ? 'done' : 'error');
+    const n = subWorking(s);
+    say(n ? `${n} subagente${n === 1 ? '' : 's'} trabajando…` : 'Juntando los resultados…');
+  }
 };
 
 async function runAgent(s, a) {
   try {
     const r = await call(s, 'agent', { name: a.name, task: a.task, transcript: transcript(s) }, ev => {
       if (ev.type === 'text') a.output = (a.output ? a.output + '\n\n' : '') + ev.text;
-      if (ev.type === 'tool') { a.activity = ev.label; renderTasks(s); }
+      if (ev.type === 'tool') {
+        a.activity = ev.label;
+        (a.steps ||= []).push({ icon: TOOL_ICON[ev.name] || '🔧', text: ev.label });
+        addStep(s, { icon: TOOL_ICON[ev.name] || '🔧', text: `${a.name}: ${ev.label}`, agent: a });
+        renderTasks(s);
+      }
       if (panelAgent === a) renderAgent(a);
     });
     a.output = r.text || a.output;
@@ -639,9 +760,11 @@ async function ask(s, text, capture = null) {
   s.clouds.append(you);
   s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
+  s.steps = []; s.stepsT0 = Date.now();
   let t = thinkingCloud(s), data, denials = [];
+  stepsLink(s, t);
   try {
-    let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t));
+    let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
     s.claudeId = r.sessionId || s.claudeId;
     // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
     data = cmd ? softData(r) || commandReply(cmd.name, r.text) : validData(r);
@@ -652,25 +775,28 @@ async function ask(s, text, capture = null) {
       for (const line of data.lines.slice(0, 2)) { const c = cloud(s); await typeInto(s, c, String(line)); await wait(200); }
       setMood(s, 'delegating');
       if (s === active) gota.act('wave');
-      s.agents = data.delegate.slice(0, 3).map((d, i) => ({
+      const helpers = data.delegate.slice(0, 3).map((d, i) => ({
         id: ++agentSeq, name: String(d.name || 'Ayudante ' + (i + 1)).slice(0, 18), task: String(d.task || ''),
-        color: AGENT_COLORS[(agentSeq + i) % AGENT_COLORS.length], status: 'working', output: '', activity: '',
+        color: AGENT_COLORS[(agentSeq + i) % AGENT_COLORS.length], status: 'working', output: '', activity: '', steps: [],
       }));
-      s.agents.forEach((a, i) => setTimeout(() => gota.spawnAgent(a.id, a.color, s.id), i * 350));
+      s.agents = s.agents.concat(helpers);
+      helpers.forEach((a, i) => setTimeout(() => gota.spawnAgent(a.id, a.color, s.id), i * 350));
+      helpers.forEach(a => addStep(s, { icon: '🤝', text: `Repartió una parte a «${a.name}»`, agent: a }));
       renderTasks(s);
       renderSessions();
-      await Promise.all(s.agents.map(a => runAgent(s, a)));
+      await Promise.all(helpers.map(a => runAgent(s, a)));
       // Si se detuvo o se cerró la sesión mientras trabajaban, no se gasta otra llamada en integrar.
       if (s.stopped || !sessions.includes(s)) throw { code: 'cancelled' };
-      const failed = s.agents.filter(a => a.status === 'error');
+      const failed = helpers.filter(a => a.status === 'error');
       if (s === active) {
         if (failed.length) { gota.act('scratch'); gota.react('thinking', 1800); }
         else { gota.act('jump'); gota.react('joy', 1600); }
       }
       setMood(s, 'thinking');
       t = thinkingCloud(s);
-      const results = s.agents.map(a => `### ${a.name} (${a.status === 'done' ? 'terminado' : 'incompleto'})\nTarea: ${a.task}\n${a.output}`).join('\n\n');
-      r = await call(s, 'ask', { conv: s.id, results, resume: s.claudeId }, progressInto(t));
+      stepsLink(s, t);
+      const results = helpers.map(a => `### ${a.name} (${a.status === 'done' ? 'terminado' : 'incompleto'})\nTarea: ${a.task}\n${a.output}`).join('\n\n');
+      r = await call(s, 'ask', { conv: s.id, results, resume: s.claudeId }, progressInto(t, s));
       s.claudeId = r.sessionId || s.claudeId;
       data = validData(r);
       data.delegate = null;
@@ -680,7 +806,10 @@ async function ask(s, text, capture = null) {
   } catch (e) {
     data = { mood: 'worried', lines: errLines(e) };
   }
+  // Los subagentes que siguieran en marcha (p. ej. al detener) se dan por terminados.
+  for (const a of s.agents) if (a.internal && a.status === 'working') { a.output = a.output || 'Se detuvo antes de terminar.'; setAgentStatus(s, a, 'error'); }
   t.remove();
+  s.stepsLink = null;
   for (const line of data.lines.slice(0, 2)) { const c = cloud(s); await typeInto(s, c, String(line)); await wait(250); }
   setMood(s, data.mood || 'neutral');
   if (s === active) {
@@ -693,6 +822,8 @@ async function ask(s, text, capture = null) {
   if (sheets.length) showSheetsButton(s, sheets, data.title);
   if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);
   setBusy(s, false);
+  if (s.steps.length) showStepsButton(s);
+  if (panelSteps === s) renderSteps(s);
   // Si la sesión terminó mientras estaba detrás, su gota salta y muestra un aviso.
   if (s !== active && sessions.includes(s)) {
     const kind = data.mood === 'worried' ? 'error' : 'done';
@@ -950,8 +1081,11 @@ function folderButton(s) {
 
 // `astro` en una terminal: a la sesión que ya trabaja en esa carpeta; si no hay, la principal pasa a
 // esa carpeta si está libre; si está ocupada, se abre una sesión nueva allí.
-function openFolder(dir) {
+let markReady;
+const configReady = new Promise(r => { markReady = r; });
+async function openFolder(dir) {
   if (!dir) return;
+  await configReady;
   const go = s => (gota.isMinimized() ? restoreThen(() => switchTo(s, openAsk)) : switchTo(s, openAsk));
   const here = sessions.find(s => sameDir(s.folder, dir));
   if (here) { go(here); return; }
@@ -1104,7 +1238,9 @@ api.config().then(async c => {
   renderTools();
   isWin = c.platform === 'win32';
   recentFolders = (await api.checkFolders(recentFolders).catch(() => recentFolders)).filter(d => !sameDir(d, defaultFolder));
-  active.folder = c.launchDir || defaultFolder;
+  // Si `astro` ya colocó la sesión en una carpeta mientras arrancaba, se respeta.
+  for (const s of sessions) if (!s.folder) s.folder = s === active && c.launchDir ? c.launchDir : defaultFolder;
+  markReady();
   rememberFolder(active.folder);
   if (Array.isArray(c.commands)) commands = c.commands;
   $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b></b> nueva · <b></b> cambiar`;
@@ -1137,6 +1273,17 @@ if (new URLSearchParams(location.search).has('debug')) {
     openAsk,
     openResume,
     openFolder,
+    // Simula n subagentes de Claude (lanzar, trabajar y terminar) para ver las órbitas y los pasos.
+    fakeSubagents(n = 12) {
+      const s = active;
+      s.steps = []; s.stepsT0 = Date.now(); clearAgents(s); setBusy(s, true);
+      const t = thinkingCloud(s); stepsLink(s, t);
+      const on = progressInto(t, s);
+      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-start', key: 'k' + i, name: 'Subagente ' + (i + 1), task: 'Tarea de prueba ' + (i + 1) }), i * 150);
+      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-tool', key: 'k' + i, name: 'Read', label: `Leyendo archivo${i + 1}.js` }), 2000 + i * 100);
+      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-end', key: 'k' + i, ok: i % 7 !== 3, text: 'Resultado ' + (i + 1) }), 6000 + i * 400);
+      setTimeout(() => { t.remove(); s.stepsLink = null; setBusy(s, false); showStepsButton(s); }, 6000 + n * 400 + 1500);
+    },
     folders: () => sessions.map(s => ({ name: s.name, folder: s.folder, busy: s.busy, active: s === active })),
     resumeFirst: async () => { const r = await api.history(); if (r.items[0]) resumeInto(active, r.items.find(c => c.astro) || r.items[0]); return r.items.length; },
     thinking: (status = 'Leyendo main.js…') => { const t = thinkingCloud(active); t.querySelector('.status').textContent = status; },

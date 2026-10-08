@@ -82,9 +82,16 @@ Cada sesión es una conversación independiente con Claude Code: tiene su color,
 - **Reiniciar:** botón ↻ de la barra o menú de la bandeja; pide confirmación y empieza la conversación de cero.
 - **Cerrar:** `×` en su chip; la gota vuelve y se funde con la principal.
 
-## Ayudantes
+## Ayudantes y subagentes
 
-Cuando Claude divide una tarea grande, cada ayudante sale de la gota como una mini-gota de color que orbita mientras trabaja. Astro pone cara concentrada y los va mirando. Si uno falla, su mini-gota se vuelve gris y Astro se preocupa. La lista con el estado de cada uno aparece en una nube; clic en un ayudante (en la lista o en su mini-gota) para ver lo que está haciendo.
+Cuando Claude divide el trabajo, cada parte sale de la gota como una mini-gota de color que orbita mientras trabaja. Astro pone cara concentrada y las va mirando; si una falla, se vuelve gris y Astro se preocupa. Hay dos tipos:
+
+- **Subagentes de Claude Code:** los que Claude lanza con su herramienta `Agent`. Pueden ser muchos a la vez: hasta 8 orbitan cerca y el resto en un anillo exterior, más pequeñas y girando al revés. Claude Code los ejecuta en segundo plano, así que Astro espera a que terminen todos y a la respuesta final antes de dar la pregunta por cerrada.
+- **Ayudantes de Astro:** si Claude reparte una tarea grande (hasta 3 partes), Astro lanza un proceso de Claude por cada una.
+
+La lista de la nube muestra cada uno con lo que está haciendo en ese momento. Clic en uno (en la lista o en su mini-gota) para ver su encargo, sus pasos y su resultado.
+
+**Pasos de Claude:** mientras responde, la nube de pensando tiene un enlace *Ver pasos (N)* que abre en el panel, en vivo y con la hora, todo lo que va haciendo: qué archivos lee, qué busca, qué comandos ejecuta, a quién lanza y cuándo termina cada subagente (con su color; clic para ver su detalle). Al terminar, el botón *🧭 Ver los N pasos* deja consultarlos.
 
 ## Capturas de pantalla
 
