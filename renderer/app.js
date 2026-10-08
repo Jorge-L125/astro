@@ -42,6 +42,7 @@ let seq = 0;
 function mkSession(name, color, folder = null) {
   const clouds = document.createElement('div');
   clouds.className = 'clouds';
+  watchFade(clouds);
   clouds.setAttribute('aria-live', 'polite');
   return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder, steps: [], stepsT0: 0 };
 }
@@ -179,7 +180,19 @@ addEventListener('mousemove', e => updateIgnore(e.clientX, e.clientY));
 
 /* ---------- nubes ---------- */
 let askEl = null;
-function stickToBottom(s) { s.clouds.scrollTop = s.clouds.scrollHeight; }
+function stickToBottom(s) { s.clouds.scrollTop = s.clouds.scrollHeight; fadeEdges(s.clouds); }
+// Marca los bordes con más contenido detrás para desvanecerlos (ver .fade-top / .fade-bottom).
+function fadeEdges(el) {
+  const top = el.scrollTop > 2;
+  const bottom = el.scrollHeight - el.scrollTop - el.clientHeight > 2;
+  el.classList.toggle('fade-top', top);
+  el.classList.toggle('fade-bottom', bottom);
+}
+function watchFade(el) {
+  el.addEventListener('scroll', () => fadeEdges(el), { passive: true });
+  new ResizeObserver(() => fadeEdges(el)).observe(el);
+  new MutationObserver(() => requestAnimationFrame(() => fadeEdges(el))).observe(el, { childList: true, subtree: true, characterData: true });
+}
 function clearClouds(s) {
   if (offer && offer.s === s) dropOffer();
   s.clouds.innerHTML = ''; s.tasksEl = null;
@@ -492,9 +505,12 @@ function renderTasks(s) {
   if (created) {
     s.tasksEl = document.createElement('div');
     s.tasksEl.className = 'cloud tasks hit';
+    watchFade(s.tasksEl);
     s.clouds.append(s.tasksEl);
   }
   const n = s.agents.filter(a => a.status === 'working').length;
+  // Se redibuja a menudo (cada paso de cada subagente): conserva dónde estaba desplazada la lista.
+  const keep = s.tasksEl.scrollTop;
   s.tasksEl.innerHTML = '';
   const ttl = document.createElement('p');
   ttl.className = 'ttl';
@@ -520,6 +536,8 @@ function renderTasks(s) {
     row.onmouseleave = () => gota.highlightAgent(null);
     s.tasksEl.append(row);
   }
+  s.tasksEl.scrollTop = keep;
+  fadeEdges(s.tasksEl);
   if (atBottom || created) stickToBottom(s);
 }
 function highlightTask(id) {
