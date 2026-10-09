@@ -116,4 +116,60 @@ function listConversations({ claudeHome, cwd, limit = 30 }) {
   return out;
 }
 
-module.exports = { encodeCwd, projectDirsFor, userText, summarize, listConversations };
+// Una conversación puede pesar decenas de MB; se lee como mucho la parte final.
+const MAX_READ = 32 * 1024 * 1024;
+
+/**
+ * La conversación entera, en orden: [{ role: 'user', text, at }, { role: 'bot', data, text, at }].
+ * La respuesta de cada pregunta es la última que dio Claude antes de la siguiente (los resultados de
+ * los ayudantes y las herramientas no cuentan como preguntas). [] si no existe o el id no es válido.
+ */
+function readConversation({ claudeHome, cwd, id }) {
+  if (typeof id !== 'string' || !/^[\w-]{1,80}$/.test(id)) return [];
+  let file = null;
+  for (const dir of projectDirsFor(claudeHome, cwd)) {
+    const f = path.join(dir, id + '.jsonl');
+    if (fs.existsSync(f)) { file = f; break; }
+  }
+  if (!file) return [];
+  let lines;
+  try {
+    const size = fs.statSync(file).size;
+    if (size <= MAX_READ) lines = fs.readFileSync(file, 'utf8').split('\n');
+    else {
+      const fd = fs.openSync(file, 'r');
+      try {
+        const buf = Buffer.alloc(MAX_READ);
+        fs.readSync(fd, buf, 0, MAX_READ, size - MAX_READ);
+        lines = buf.toString('utf8').split('\n').slice(1); // la primera línea puede venir cortada
+      } finally { fs.closeSync(fd); }
+    }
+  } catch { return []; }
+  const out = [];
+  let bot = null;
+  const flush = () => { if (bot && (bot.data || bot.text)) out.push(bot); bot = null; };
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    const at = Date.parse(e.timestamp) || null;
+    const u = userText(e);
+    if (u !== null) {
+      if (ASTRO_INTEGRATION.test(u)) continue; // sigue siendo la misma pregunta
+      flush();
+      out.push({ role: 'user', text: u, at });
+      bot = { role: 'bot', data: null, text: '', at: null };
+      continue;
+    }
+    if (e.type === 'assistant' && !e.isSidechain && e.message && Array.isArray(e.message.content) && bot) {
+      for (const p of e.message.content) {
+        if (p.type === 'tool_use' && p.name === 'StructuredOutput' && p.input && Array.isArray(p.input.lines)) { bot.data = p.input; bot.at = at; }
+        if (p.type === 'text' && p.text && p.text.trim()) { bot.text = p.text.trim(); bot.at = bot.at || at; }
+      }
+    }
+  }
+  flush();
+  return out;
+}
+
+module.exports = { encodeCwd, projectDirsFor, userText, summarize, listConversations, readConversation };

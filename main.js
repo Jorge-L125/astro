@@ -15,7 +15,7 @@ const { describeDisplays, pinnedDisplay } = require('./src/displays');
 const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
-const { listConversations } = require('./src/history');
+const { listConversations, readConversation } = require('./src/history');
 const { readPlan } = require('./src/plans');
 const { createUpdater } = require('./src/updater');
 
@@ -425,6 +425,13 @@ ipcMain.on('claude:end', (_e, conv) => endConversation(conv));
 ipcMain.on('claude:prewarm', (_e, { conv, cwd }) => warmFor(conv, folderOf(cwd)));
 ipcMain.on('claude:resume', (_e, { conv, sessionId, cwd }) => {
   if (typeof sessionId === 'string' && /^[\w-]{8,80}$/.test(sessionId)) resumeConversation(conv, sessionId, folderOf(cwd));
+});
+ipcMain.handle('history:conversation', (_e, { cwd: dir, id }) => {
+  try {
+    return { ok: true, items: readConversation({ claudeHome: path.join(os.homedir(), '.claude'), cwd: folderOf(dir), id }) };
+  } catch (e) {
+    return { ok: false, message: e.message, items: [] };
+  }
 });
 ipcMain.handle('history:list', (_e, dir) => {
   const cwd = folderOf(dir);

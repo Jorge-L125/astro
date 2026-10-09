@@ -173,6 +173,7 @@ $('bAsk').onclick = () => (askEl ? closeAsk() : openAsk());
 $('bNew').onclick = () => newSession();
 $('bReset').onclick = () => confirmReset(active);
 $('bResume').onclick = () => openResume();
+$('bHistory').onclick = () => openHistory();
 $('bMin').onclick = () => gota.minimize();
 $('bQuit').onclick = () => api.quit();
 // Preferencias que guarda el proceso principal (también se cambian desde la bandeja).
@@ -305,7 +306,7 @@ function openAsk() {
     const v = ta.value.trim();
     if (!v) return;
     const cmd = parseSlash(v);
-    if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear')) { runLocal(cmd.name); return; }
+    if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear' || cmd.name === 'historial')) { runLocal(cmd.name); return; }
     if (isCompliment(v)) gota.compliment();
     const cap = attached;
     attached = null; // pasa a la pregunta: ya no se descarta al cerrar
@@ -386,6 +387,7 @@ function closeAsk() { if (askEl) askEl.remove(); askEl = null; detachCapture(); 
 function runLocal(name) {
   closeAsk();
   if (name === 'resume') openResume();
+  else if (name === 'historial') openHistory();
   else if (name === 'clear') confirmReset(active);
 }
 
@@ -1114,6 +1116,62 @@ const relTime = (() => {
 })();
 const shortName = text => { const n = String(text).replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '); return n.length > 22 ? n.slice(0, 21) + '…' : n; };
 
+// Todo lo que se ha hablado en esta sesión, de lo más antiguo a lo más nuevo. Sale de la conversación
+// guardada por Claude Code (completa, también tras retomarla); sin ella, de lo que Astro lleva en memoria.
+async function openHistory() {
+  if (gota.isMinimized()) { restoreThen(openHistory); return; }
+  closeAsk(); toggleSettings(false);
+  panelAgent = null;
+  const s = active;
+  openShell('Historial', 'Leyendo…', blobIco(s.color));
+  const pb = $('pbody');
+  pb.innerHTML = '<p class="muted">Leyendo la conversación…</p>';
+  let items = [];
+  if (s.claudeId) { try { items = (await api.conversation(s.folder, s.claudeId)).items || []; } catch { items = []; } }
+  if (!items.length) items = s.history.map(h => (h.role === 'user' ? { role: 'user', text: h.text } : { role: 'bot', data: h.data, text: '' }));
+  if (!body.classList.contains('panel-open') || $('ptitle').textContent !== 'Historial') return;
+  const asked = items.filter(m => m.role === 'user').length;
+  $('psub').textContent = `${s.name} · ${asked === 1 ? '1 pregunta' : asked + ' preguntas'}`;
+  pb.innerHTML = '';
+  if (!items.length) { pb.innerHTML = '<p class="muted">Aún no has hablado con Astro en esta sesión.</p>'; return; }
+  const search = document.createElement('input');
+  search.type = 'search'; search.className = 'search'; search.placeholder = 'Buscar en la conversación…';
+  search.setAttribute('aria-label', 'Buscar en la conversación');
+  const list = document.createElement('div');
+  list.className = 'hist';
+  pb.append(search, list);
+  const textOf = m => (m.role === 'user' ? m.text : [m.data && m.data.title, ...((m.data && m.data.lines) || []), m.data && m.data.detail, m.text].filter(Boolean).join(' '));
+  const paint = () => {
+    const q = search.value.trim().toLowerCase();
+    list.innerHTML = '';
+    for (const m of items) {
+      if (q && !textOf(m).toLowerCase().includes(q)) continue;
+      const el = document.createElement('article');
+      const when = m.at ? relTime(m.at) : '';
+      if (m.role === 'user') {
+        el.className = 'hmsg you';
+        el.innerHTML = '<small></small><p></p>';
+        el.querySelector('p').textContent = m.text;
+      } else {
+        el.className = 'hmsg bot sheet';
+        const d = m.data;
+        el.innerHTML = '<small></small>' + (d ? '<h4></h4><div class="lines"></div><div class="detail"></div>' : '<div class="detail"></div>');
+        if (d) {
+          el.querySelector('h4').textContent = d.title || 'Astro';
+          el.querySelector('.lines').innerHTML = (d.lines || []).map(l => '<p>' + inline(l) + '</p>').join('');
+          el.querySelector('.detail').innerHTML = md(d.detail || '');
+        } else el.querySelector('.detail').innerHTML = md(m.text);
+      }
+      el.querySelector('small').textContent = (m.role === 'user' ? 'Tú' : 'Astro') + (when ? ' · ' + when : '');
+      list.append(el);
+    }
+    if (!list.childElementCount) list.innerHTML = '<p class="muted">Nada coincide con esa búsqueda.</p>';
+    else if (!q) pb.scrollTop = pb.scrollHeight;
+  };
+  search.addEventListener('input', paint);
+  paint();
+}
+
 async function openResume() {
   if (gota.isMinimized()) { restoreThen(openResume); return; }
   closeAsk(); toggleSettings(false);
@@ -1497,7 +1555,10 @@ if (new URLSearchParams(location.search).has('debug')) {
     closeSession: i => closeSession(sessions[i]),
     say: text => { const c = cloud(active); c.textContent = text; },
     setCommands: list => { commands = list; },
-    fakeHistory: () => { active.history.push({ role: 'user', text: 'prueba' }); },
+    fakeHistory: () => {
+      active.history.push({ role: 'user', text: 'prueba' });
+      active.history.push({ role: 'bot', data: { mood: 'happy', title: 'Respuesta de prueba', lines: ['Aquí va **lo importante**.'], detail: '## Pasos\n\n1. Uno\n2. Dos con `código`' } });
+    },
     openAsk,
     showPlan: text => showPlanButton(active, text),
     openResume,

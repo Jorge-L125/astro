@@ -8,6 +8,7 @@ const { readDescriptions } = require('./skill-descriptions');
 const BUILTIN = {
   clear: { kind: 'local', desc: 'Empieza esta conversación de cero (pide confirmación)' },
   resume: { kind: 'local', desc: 'Retoma una conversación anterior' },
+  historial: { kind: 'local', desc: 'Todo lo que le has dicho a Astro en esta sesión' },
   compact: { kind: 'task', desc: 'Resume la conversación para liberar contexto' },
   context: { kind: 'info', desc: 'Cuánto contexto lleva la conversación' },
   usage: { kind: 'info', desc: 'Uso de tu plan y cuándo se reinicia' },

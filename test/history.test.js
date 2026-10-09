@@ -67,3 +67,38 @@ test('resume conversaciones de Astro y de la terminal, de la más reciente a la 
 test('sin carpeta de proyecto devuelve una lista vacía', () => {
   assert.deepEqual(listConversations({ claudeHome: tmp(), cwd: 'D:\\nada' }), []);
 });
+
+test('lee la conversación entera: cada pregunta con su respuesta, en orden', () => {
+  const { readConversation } = require('../src/history');
+  const { claudeHome, cwd, dir } = setup();
+  const q1 = { ...user('Dame lineamientos para golang'), timestamp: '2026-10-09T10:00:00.000Z' };
+  const a1 = { ...structured({ mood: 'thinking', title: 'x', lines: ['¿Qué proyecto?'] }), timestamp: '2026-10-09T10:00:05.000Z' };
+  const q2 = { ...user('Una API'), timestamp: '2026-10-09T10:01:00.000Z' };
+  const data = { mood: 'happy', title: 'Lineamientos Go', lines: ['Aquí van'], detail: 'Todo el detalle' };
+  fs.writeFileSync(path.join(dir, 'aaa-astro.jsonl'), jsonl([
+    q1, a1, q2,
+    { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', content: 'nada' }] } },
+    { type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'ruido de un ayudante' }] } },
+    user('Resultados de tus ayudantes:\n\n### Tester'),
+    structured(data),
+    user('gracias'),
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'De nada' }] } },
+  ]));
+  const m = readConversation({ claudeHome, cwd, id: 'aaa-astro' });
+  assert.deepEqual(m.map(x => x.role), ['user', 'bot', 'user', 'bot', 'user', 'bot']);
+  assert.equal(m[0].text, 'Dame lineamientos para golang');
+  assert.equal(m[0].at, Date.parse('2026-10-09T10:00:00.000Z'));
+  assert.equal(m[1].data.lines[0], '¿Qué proyecto?');
+  assert.equal(m[2].text, 'Una API');
+  assert.deepEqual(m[3].data, data, 'la respuesta tras los ayudantes es la última de esa pregunta');
+  assert.equal(m[5].text, 'De nada');
+  assert.equal(m[5].data, null);
+});
+
+test('leer una conversación no sale de la carpeta del proyecto ni falla si no existe', () => {
+  const { readConversation } = require('../src/history');
+  const { claudeHome, cwd } = setup();
+  assert.deepEqual(readConversation({ claudeHome, cwd, id: 'no-existe' }), []);
+  assert.deepEqual(readConversation({ claudeHome, cwd, id: '../../../etc/passwd' }), []);
+  assert.deepEqual(readConversation({ claudeHome, cwd, id: null }), []);
+});

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('astro', {
   prewarm: (conv, cwd) => ipcRenderer.send('claude:prewarm', { conv, cwd }),
   resumeConversation: (conv, sessionId, cwd) => ipcRenderer.send('claude:resume', { conv, sessionId, cwd }),
   history: cwd => ipcRenderer.invoke('history:list', cwd),
+  conversation: (cwd, id) => ipcRenderer.invoke('history:conversation', { cwd, id }),
   pickFolder: current => ipcRenderer.invoke('folder:pick', current),
   grantTools: names => ipcRenderer.invoke('tools:grant', names),
   revokeTool: name => ipcRenderer.invoke('tools:revoke', name),
