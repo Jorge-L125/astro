@@ -1,0 +1,3 @@
+# Scripts de shell con saltos de línea Unix: con CRLF, bash falla ("$'\r': command not found").
+build/bin/astro text eol=lf
+*.sh text eol=lf

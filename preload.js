@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:welcome-back', 'astro:folder'];
+const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder'];
 
 contextBridge.exposeInMainWorld('astro', {
   setIgnore: ignore => ipcRenderer.send('mouse:ignore', ignore),

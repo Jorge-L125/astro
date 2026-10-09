@@ -28,6 +28,23 @@ test('convierte tablas, aunque vengan pegadas a un título', async () => {
   assert.match(md('| <b> | x |'), /&lt;b&gt;/, 'las celdas también se escapan');
 });
 
+test('las hojas nunca parten un bloque de código, aunque tenga líneas en blanco', async () => {
+  const { buildSheets, mdChunks } = await load();
+  const code = '```js\nconst a = 1;\n\n\nconst b = 2;\n```';
+  assert.deepEqual(mdChunks(`Intro\n\n${code}\n\nFin`), ['Intro', code, 'Fin']);
+  const sheets = buildSheets({ detail: `${'x'.repeat(700)}\n\n${code}\n\n${'y'.repeat(700)}` });
+  assert.ok(sheets.some(s => s.text.includes(code)), 'el bloque entero en una sola hoja');
+});
+
+test('previewText deja un resumen corrido y sin markdown para la nube', async () => {
+  const { previewText } = await load();
+  assert.equal(previewText('## Hecho\n\n- **Arreglé** el `PATH`\n- Ver [docs](http://x)\n\n```js\ncode()\n```'),
+    'Hecho Arreglé el PATH Ver docs [código]');
+  assert.equal(previewText('| a | b |\n|---|---|\n| 1 | 2 |'), 'a · b / 1 · 2');
+  assert.equal(previewText('Resumen:\n| a | b |\n| 1 | 2 |\nFin'), 'Resumen: a · b / 1 · 2 Fin');
+  assert.equal(previewText(''), '');
+});
+
 test('buildSheets reparte el detalle sin partir párrafos y pone el código aparte', async () => {
   const { buildSheets } = await load();
   const big = 'x'.repeat(400), small = 'y'.repeat(200);

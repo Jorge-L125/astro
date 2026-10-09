@@ -18,7 +18,7 @@ function startNotifyServer(port, onNotify, { token, onListening = () => {} } = {
     req.setEncoding('utf8');
     req.on('data', d => {
       body += d;
-      if (body.length > 64 * 1024) req.destroy();
+      if (body.length > 256 * 1024) req.destroy();
     });
     req.on('end', () => {
       try {
@@ -26,7 +26,8 @@ function startNotifyServer(port, onNotify, { token, onListening = () => {} } = {
         onNotify({
           event: String(p.event || 'Stop'),
           project: String(p.project || '').slice(0, 60),
-          message: String(p.message || '').slice(0, 280),
+          // El mensaje entero (markdown incluido): la nube muestra un resumen y el panel, el texto completo.
+          message: String(p.message || '').slice(0, 20000),
         });
         res.writeHead(204).end();
       } catch {

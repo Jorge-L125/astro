@@ -31,5 +31,5 @@ test('ignora claves desconocidas, tipos incorrectos y archivos dañados', t => {
   fs.writeFileSync(path.join(dir, 'prefs.json'), '{ roto');
   assert.deepEqual(createPrefs(dir).get(), PREF_DEFAULTS);
   fs.writeFileSync(path.join(dir, 'prefs.json'), JSON.stringify({ alwaysOnTop: 'sí', watchCaptures: false }));
-  assert.deepEqual(createPrefs(dir).get(), { alwaysOnTop: true, watchCaptures: false });
+  assert.deepEqual(createPrefs(dir).get(), { ...PREF_DEFAULTS, watchCaptures: false });
 });

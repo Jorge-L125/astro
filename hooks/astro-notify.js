@@ -40,7 +40,8 @@ process.stdin.on('end', () => {
   const body = JSON.stringify({
     event,
     project: hook.cwd ? path.basename(hook.cwd) : '',
-    message: String(message).replace(/\s+/g, ' ').slice(0, 280),
+    // Completo y con sus saltos de línea: Astro lo muestra en markdown en el panel lateral.
+    message: String(message).trim().slice(0, 20000),
   });
   const req = http.request({
     host: '127.0.0.1',

@@ -43,13 +43,15 @@ function runHook(env, input) {
   });
 }
 
-test('acepta avisos con el token y recorta los campos', async t => {
+test('acepta avisos con el token: el mensaje llega entero (con su markdown) hasta 20.000 caracteres', async t => {
   const { port, events } = await serve(t);
-  const res = await post(port, { event: 'Stop', project: 'p'.repeat(100), message: 'm'.repeat(500) });
+  const largo = '## Hecho\n\n' + 'm'.repeat(5000) + '\n\n```js\nconst a = 1;\n```';
+  const res = await post(port, { event: 'Stop', project: 'p'.repeat(100), message: largo });
   assert.equal(res.status, 204);
-  assert.equal(events.length, 1);
   assert.equal(events[0].project.length, 60);
-  assert.equal(events[0].message.length, 280);
+  assert.equal(events[0].message, largo, 'sin recortar ni juntar los saltos de línea');
+  await post(port, { event: 'Stop', message: 'x'.repeat(30000) });
+  assert.equal(events[1].message.length, 20000);
 });
 
 test('rechaza peticiones sin token, con token incorrecto o que no son JSON', async t => {
@@ -77,9 +79,9 @@ test('el hook avisa a Astro usando el puerto y el token publicados', async t => 
   const env = tmpHome(t);
   const { port, events } = await serve(t);
   writeRuntimeInfo({ port, token: TOKEN, pid: process.pid }, env);
-  const code = await runHook(env, { hook_event_name: 'Stop', cwd: path.join('home', 'mi-proyecto'), last_assistant_message: 'Listo   todo\n bien' });
+  const code = await runHook(env, { hook_event_name: 'Stop', cwd: path.join('home', 'mi-proyecto'), last_assistant_message: '  ## Listo\n\n- todo\n- bien\n' });
   assert.equal(code, 0);
-  assert.deepEqual(events, [{ event: 'Stop', project: 'mi-proyecto', message: 'Listo todo bien' }]);
+  assert.deepEqual(events, [{ event: 'Stop', project: 'mi-proyecto', message: '## Listo\n\n- todo\n- bien' }]);
 });
 
 test('el hook toma el último texto del transcript si no viene el mensaje', async t => {

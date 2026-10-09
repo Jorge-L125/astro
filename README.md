@@ -24,6 +24,14 @@ Astro abre una sola vez: si ya está abierto y lo vuelves a lanzar (otra vez el 
 
 Cada sesión reutiliza un mismo proceso de Claude Code en lugar de lanzar el CLI en cada pregunta. Como cada proceso ocupa unos 400 MB, Astro no deja ninguno esperando: lo arranca al abrir la pregunta (mientras escribes) y lo cierra tras unos minutos sin uso; la conversación se reanuda sola.
 
+## Uso del contexto
+
+Cada conversación tiene un límite de tokens que depende del modelo (200k, 1M…). Astro lo vigila por sesión:
+
+- **Anillo:** cuando el contexto pasa del **75%** aparece un anillo pequeño abajo, junto a Astro (ámbar; rojo desde el 90%). Al pulsarlo ves cuánto llevas, cuánto queda, cuánto sumó el último turno y el botón **Compactar sesión** (`/compact`).
+- **Ajustes → Contexto de esta sesión:** el mismo resumen, siempre visible.
+- **Pregúntale:** «¿cuántos tokens quedan?» o «¿cómo va el contexto?» y Astro te lo explica señalando el anillo, sin gastar una llamada a Claude. Si preguntas por el límite de tu plan (5 horas, semanal), usa `/usage`.
+
 ## Comandos /
 
 Escribe `/` en la pregunta para ver los comandos de Claude Code: los de serie (`/context`, `/usage`, `/compact`, `/model`…), tus skills y los de tus plugins, con su descripción (la de cada skill se lee de su archivo). También busca por la descripción a partir de 3 letras. Flechas para elegir, Tab o Enter para completar, Esc para cerrar el menú.
@@ -47,7 +55,7 @@ El instalador de Windows se instala para el usuario actual en `%LOCALAPPDATA%\Pr
 
 En la versión instalada:
 
-- **Comando `astro`:** el instalador añade al PATH de tu usuario la carpeta `bin` de Astro (solo contiene `astro.cmd`), así que puedes abrirlo escribiendo `astro` en cualquier terminal nueva; si ya está abierto, se muestra. En los dos casos se coloca en la carpeta desde la que lo llamaste (ver [Carpeta de trabajo](#carpeta-de-trabajo)). El desinstalador quita esa entrada y deja el resto del PATH como estaba.
+- **Comando `astro`:** el instalador añade al PATH de tu usuario la carpeta `bin` de Astro (solo contiene `astro.cmd` y, para Git Bash, el script `astro`), así que puedes abrirlo escribiendo `astro` en cualquier terminal nueva (PowerShell, cmd o Git Bash); si ya está abierto, se muestra. En los dos casos se coloca en la carpeta desde la que lo llamaste (ver [Carpeta de trabajo](#carpeta-de-trabajo)). El desinstalador quita esa entrada y deja el resto del PATH como estaba.
 - **Configuración:** está en `%APPDATA%\Astro\astro.config.json` y se crea en el primer arranque. Se abre desde la bandeja con *Abrir configuración*.
 - **Avisos:** el comando del hook se copia desde la bandeja con *Copiar comando de avisos (hooks)*; pégalo en `~/.claude/settings.json` como se explica en [Avisos de tareas terminadas](#avisos-de-tareas-terminadas).
 - **Firma:** el instalador no está firmado, así que la primera vez Windows SmartScreen avisa de que es de un editor desconocido (*Más información → Ejecutar de todas formas*). Para quitar el aviso hace falta firmarlo con un certificado de firma de código.
@@ -108,6 +116,7 @@ Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
 - **Cajas:** *Glass* (por defecto) hace translúcidas las nubes, Ajustes, la barra de botones y el panel lateral, con reflejos en el borde; *Glass de color* además tiñe Ajustes, la barra y el panel con el color de Astro; *Sólido* lo deja todo opaco. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás: los paneles son algo más opacos para que no se mezclen con las nubes.
 - **Siempre encima de las ventanas:** por defecto Astro flota sobre todo. Si lo apagas, queda detrás de las ventanas que uses y vuelve al frente al llamarlo o al detectar una captura.
 - **Detectar capturas de pantalla.**
+- **Pantalla** (solo si tienes más de una): *Auto* aparece en la pantalla donde esté el cursor; un número la fija siempre en esa pantalla (numeradas de izquierda a derecha; pasa el ratón por encima para ver su nombre y resolución). Si desconectas la pantalla elegida, Astro sigue al cursor hasta que vuelva. También está en la bandeja → *Pantalla*.
 
 Las dos últimas también están en el menú de la bandeja, y todos los ajustes se recuerdan entre arranques.
 
@@ -171,6 +180,8 @@ Para que Astro te avise cuando **cualquier** sesión de Claude Code termina o ne
 
 Sustituye `<RUTA-DE-ASTRO>` por la carpeta de este proyecto (con `/`). Con Astro instalado, usa el menú de la bandeja *Copiar comando de avisos (hooks)*, que ya trae la ruta correcta. El hook no necesita más configuración: al arrancar, Astro guarda el puerto y un token que cambia en cada arranque en `~/.astro/notify.json`, y el hook los lee de ahí. Si Astro no está abierto, el hook no hace nada.
 
+El aviso llega con el mensaje completo de Claude: la nube muestra un resumen y, al pulsarla, el mensaje entero se abre en el panel lateral con su markdown (títulos, listas, tablas y código).
+
 Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 
 ## Desarrollo
@@ -182,7 +193,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 | `pnpm check` | Lint y pruebas, lo mismo que la CI de GitHub en Windows, macOS y Linux. |
 | `pnpm dist` | Compila el instalador de Windows en `dist/` (ver [Compilar un ejecutable](#compilar-un-ejecutable)). |
 
-**Modo de prueba:** `ASTRO_DEBUG=1 pnpm start` muestra los mensajes de la interfaz en la terminal y expone `astroDebug` en la consola de la ventana (`newSession()`, `fakeAgents(conError, indiceSesion)`, `say(texto)`, `thinking(estado)`) para ensayar animaciones sin gastar llamadas a Claude. `ASTRO_SCREENSHOTS_DIR=<carpeta>` cambia la carpeta de capturas vigilada.
+**Modo de prueba:** `ASTRO_DEBUG=1 pnpm start` muestra los mensajes de la interfaz en la terminal y expone `astroDebug` en la consola de la ventana (`newSession()`, `fakeAgents(conError, indiceSesion)`, `say(texto)`, `thinking(estado)`, `context(usados, límite)`) para ensayar animaciones sin gastar llamadas a Claude. `ASTRO_SCREENSHOTS_DIR=<carpeta>` cambia la carpeta de capturas vigilada.
 
 ## Estructura
 
