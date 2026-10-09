@@ -16,6 +16,7 @@ const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
 const { listConversations } = require('./src/history');
+const { readPlan } = require('./src/plans');
 const { createUpdater } = require('./src/updater');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
@@ -405,7 +406,7 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, 
     if (n && !results && isDefault(cwd)) prewarm(agentPool, Math.min(3, n));
     return r;
   });
-  return toReply(done, r => ({ data: r.structured, text: r.text, sessionId: r.sessionId, denials: r.denials, context: r.context }));
+  return toReply(done, r => ({ data: r.structured, text: r.text, sessionId: r.sessionId, denials: r.denials, context: r.context, plan: r.plan || readPlan(r.planFile, os.homedir()) }));
 });
 
 ipcMain.handle('claude:agent', (_e, { id, name, task, transcript, cwd: dir }) => {

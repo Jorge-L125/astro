@@ -295,7 +295,7 @@ function openAsk() {
   const menu = commandMenu(ta);
   askEl.prepend(menu.el);
   askEl.prepend(folderButton(active));
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); });
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); stickToBottom(active); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
@@ -518,6 +518,15 @@ function showStepsButton(s) {
   b.className = 'stepsbtn hit';
   b.textContent = `🧭 Ver los ${s.steps.length === 1 ? 'pasos (1)' : s.steps.length + ' pasos'}`;
   b.onclick = () => openSteps(s);
+  s.clouds.append(b);
+  stickToBottom(s);
+}
+// El plan que Claude escribió (modo plan): entero en el panel, para decidir con él delante.
+function showPlanButton(s, plan) {
+  const b = document.createElement('button');
+  b.className = 'stepsbtn hit';
+  b.textContent = '📋 Ver el plan';
+  b.onclick = () => openSheets(buildSheets({ detail: plan }), 'El plan');
   s.clouds.append(b);
   stickToBottom(s);
 }
@@ -923,7 +932,7 @@ async function ask(s, text, capture = null) {
   s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
   s.steps = []; s.stepsT0 = Date.now();
-  let t = thinkingCloud(s), data, denials = [];
+  let t = thinkingCloud(s), data, denials = [], plan = null;
   stepsLink(s, t);
   try {
     let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
@@ -932,6 +941,7 @@ async function ask(s, text, capture = null) {
     // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
     data = cmd ? softData(r) || commandReply(cmd.name, r.text) : validData(r);
     denials = r.denials || [];
+    plan = r.plan || null;
     s.history.push({ role: 'bot', data });
     if (Array.isArray(data.delegate) && data.delegate.length) {
       t.remove();
@@ -965,6 +975,7 @@ async function ask(s, text, capture = null) {
       data = validData(r);
       data.delegate = null;
       denials = denials.concat(r.denials || []);
+      plan = r.plan || plan;
       s.history.push({ role: 'bot', data });
     }
   } catch (e) {
@@ -984,6 +995,7 @@ async function ask(s, text, capture = null) {
   if (denials.length) askPermission(s, denials);
   const sheets = buildSheets(data);
   if (sheets.length) showSheetsButton(s, sheets, data.title);
+  if (plan) showPlanButton(s, plan);
   if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);
   setBusy(s, false);
   if (s.steps.length) showStepsButton(s);
@@ -1487,6 +1499,7 @@ if (new URLSearchParams(location.search).has('debug')) {
     setCommands: list => { commands = list; },
     fakeHistory: () => { active.history.push({ role: 'user', text: 'prueba' }); },
     openAsk,
+    showPlan: text => showPlanButton(active, text),
     openResume,
     openFolder,
     // Simula n subagentes de Claude (lanzar, trabajar y terminar) para ver las órbitas y los pasos.

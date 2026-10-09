@@ -225,3 +225,19 @@ test('con subagentes en segundo plano espera la respuesta final y cuenta lo que 
   // Lo del subagente no se mezcla con el estado de la respuesta principal.
   assert.ok(!events.some(e => e.type === 'tool' && e.name === 'Glob'));
 });
+
+test('si Claude escribe el plan en ~/.claude/plans, la respuesta dice dónde está', async t => {
+  const s = session();
+  t.after(() => s.close());
+  const r = await s.send('plan').done;
+  assert.equal(r.planFile, '/home/a/.claude/plans/mi-plan.md');
+  assert.equal(r.plan, null);
+  assert.equal((await s.send('otra').done).planFile, null, 'el siguiente turno empieza sin plan');
+});
+
+test('si Claude presenta el plan con ExitPlanMode, la respuesta lo trae entero', async t => {
+  const s = session();
+  t.after(() => s.close());
+  const r = await s.send('exitplan').done;
+  assert.equal(r.plan, '# Plan\n\n1. Uno');
+});
