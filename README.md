@@ -112,7 +112,11 @@ Astro detecta las capturas por dos vías: la carpeta donde el sistema las guarda
 Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
 
 - **Color de esta sesión**, **posición** (izquierda o derecha) y **tema** (automático, claro u oscuro).
-- **Accesorio:** gorro de Navidad, manta de fantasma, capa de vampiro, sombrero de bruja, de fiesta o de vaquero. Cada uno tiene su reacción; las puntas de los gorros se balancean al moverse.
+- **Accesorio (diseño):** 16 a elegir — Navidad, fantasma, vampiro, bruja, fiesta, vaquero, astronauta, casco de obra, audífonos, ninja, mago, pirata, detective, vikingo y chef. Cada uno tiene sus animaciones: al ponérselo, un gesto propio de vez en cuando en reposo (confeti, humo ninja, «¡Tierra a la vista!»…), otra mientras trabaja (el martillo golpea, la olla del chef hierve, los ayudantes del vikingo llevan escudo) y una frase al terminar los ayudantes.
+  - **Por proyecto** (por defecto): cada carpeta de trabajo recuerda su diseño; las sesiones abiertas en la misma carpeta lo comparten. **Siempre el mismo** pone el mismo a todas.
+  - Las sesiones de atrás conservan su diseño (en pequeño) y lo recuperan al volver al frente.
+  - También se cambia hablándole: «ponte el sombrero de pirata», «vístete de chef», «quítate el sombrero». Lo hace Astro, sin llamar a Claude.
+  - En la segunda quincena de octubre y en diciembre, si la sesión no lleva diseño, propone el de temporada una vez.
 - **Cajas:** *Glass* (por defecto) hace translúcidas las nubes, Ajustes, la barra de botones y el panel lateral, con reflejos en el borde; *Glass de color* además tiñe Ajustes, la barra y el panel con el color de Astro; *Sólido* lo deja todo opaco. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás: los paneles son algo más opacos para que no se mezclen con las nubes.
 - **Siempre encima de las ventanas:** por defecto Astro flota sobre todo. Si lo apagas, queda detrás de las ventanas que uses y vuelve al frente al llamarlo o al detectar una captura.
 - **Detectar capturas de pantalla.**
@@ -193,7 +197,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 | `pnpm check` | Lint y pruebas, lo mismo que la CI de GitHub en Windows, macOS y Linux. |
 | `pnpm dist` | Compila el instalador de Windows en `dist/` (ver [Compilar un ejecutable](#compilar-un-ejecutable)). |
 
-**Modo de prueba:** `ASTRO_DEBUG=1 pnpm start` muestra los mensajes de la interfaz en la terminal y expone `astroDebug` en la consola de la ventana (`newSession()`, `fakeAgents(conError, indiceSesion)`, `say(texto)`, `thinking(estado)`, `context(usados, límite)`) para ensayar animaciones sin gastar llamadas a Claude. `ASTRO_SCREENSHOTS_DIR=<carpeta>` cambia la carpeta de capturas vigilada.
+**Modo de prueba:** `ASTRO_DEBUG=1 pnpm start` muestra los mensajes de la interfaz en la terminal y expone `astroDebug` en la consola de la ventana (`newSession()`, `fakeAgents(conError, indiceSesion)`, `say(texto)`, `thinking(estado)`, `context(usados, límite)`, `outfit(clave)`, `outfitIdle()`, `outfitMode('folder'|'always')`, `outfits()`) para ensayar animaciones sin gastar llamadas a Claude. `ASTRO_SCREENSHOTS_DIR=<carpeta>` cambia la carpeta de capturas vigilada.
 
 ## Estructura
 
