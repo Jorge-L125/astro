@@ -169,6 +169,9 @@ export function createGota(host, opts = {}) {
     astro: () => { play('jump'); setExpr('joy', 1.6); say('Houston, compilamos sin errores.'); },
     hardhat: () => { play('nod'); setExpr('focus', 1.6); say('Zona de obra: construyendo tu código.'); },
     phones: () => { play('dance'); setExpr('happy', 3); say('Modo concentración activado.'); },
+    ninja: () => { play('spin'); setExpr('focus', 1.4); say('¡Hiya! Silencioso como un commit a medianoche.'); },
+    magic: () => { play('hop'); setExpr('proud', 1.8); if (acc && acc.popOut) acc.popOut(T); say('¡Ta-dá!'); },
+    pirate: () => { play('wave'); setExpr('wink', 1.4); say('¡Al abordaje, grumete!'); },
   };
   function setAccessory(n, react) {
     if (!isAccessory(n)) n = 'none';

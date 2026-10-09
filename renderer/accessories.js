@@ -288,6 +288,86 @@ function buildPhones(kit) {
     update(st) { glow.emissiveIntensity = 0.5 + 0.5 * Math.abs(Math.sin(st.T * Math.PI * (st.busy ? 4 : 2))); } });
 }
 
+function buildNinja() {
+  const g = new THREE.Group();
+  const hood = new THREE.MeshStandardMaterial({ color: 0x4b4a5c, roughness: 0.8 });
+  const W = [0.7, 0.29, 0.04, 3.2], RH = 1.045;
+  const [hoodG] = splitSphere(RH, ellipseWin(...W)); g.add(new THREE.Mesh(hoodG, hood));
+  g.add(rimTube(RH, W[0], W[1], W[2], 0.035, hood, W[3]));
+  const red = new THREE.MeshStandardMaterial({ color: 0xe8463c, roughness: 0.7, side: THREE.DoubleSide });
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.915, 1.0, 0.19, 64, 1, true), red); band.position.y = 0.47; g.add(band);
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), red); knot.scale.set(1.2, 0.9, 0.7); knot.position.set(0.32, 0.5, -0.9); g.add(knot);
+  const tailGeo = new THREE.BoxGeometry(0.12, 0.62, 0.025); tailGeo.translate(0, -0.31, 0);
+  const tails = [0, 1].map(i => { const p = new THREE.Group(); p.position.set(0.34, 0.5, -0.93); p.rotation.z = i ? 1.9 : 1.35; p.add(new THREE.Mesh(tailGeo, red)); g.add(p); return p; });
+  const shine = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 12), new THREE.MeshStandardMaterial({ color: 0x8d8c9e, roughness: 0.5 })); shine.scale.set(1.3, 0.35, 0.8); shine.position.set(0, 1.0, 0.25); shine.rotation.x = -0.25; g.add(shine);
+
+  const s = new THREE.Shape(); for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2 + Math.PI / 2, r = i % 2 ? 0.07 : 0.24; const x = Math.cos(a) * r, y = Math.sin(a) * r; if (i) s.lineTo(x, y); else s.moveTo(x, y); } s.closePath();
+  const hole = new THREE.Path(); hole.absarc(0, 0, 0.035, 0, Math.PI * 2, true); s.holes.push(hole);
+  const sg = new THREE.ExtrudeGeometry(s, { depth: 0.025, bevelEnabled: true, bevelThickness: 0.01, bevelSize: 0.01, bevelSegments: 1 }); sg.center();
+  const shuriken = new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({ color: 0xc4c9d2, metalness: 0.85, roughness: 0.22 }));
+  shuriken.scale.setScalar(1.5); shuriken.position.set(0.24, 0.26, 0.28);
+
+  return blank({ group: g, props: [shuriken], handMaterial: [hood, hood], parts: { tails, shuriken },
+    update(st) {
+      tails.forEach((p, i) => { p.rotation.x = 0.35 + 0.15 * Math.sin(st.T * (st.busy ? 10 : 6) + i * 1.3) - st.spring.ax * 0.8; p.rotation.y = 0.12 * Math.sin(st.T * 4.5 + i); });
+      shuriken.rotation.z = st.T * (st.busy ? 12 : 5);
+    } });
+}
+
+function buildMagic(kit) {
+  const g = new THREE.Group();
+  const black = new THREE.MeshPhysicalMaterial({ color: 0x1a1a1f, roughness: 0.45, clearcoat: 0.4 });
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.04, 64), black));
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.52, 0.78, 48), black); crown.position.y = 0.41; g.add(crown);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.525, 0.53, 0.15, 48), kit.felt(0xc8303a)); band.position.y = 0.1; g.add(band);
+  // una mini-gota que asoma del sombrero (truco de magia)
+  const pop = new THREE.Mesh(new THREE.SphereGeometry(0.15, 32, 20), kit.bodyMaterial); pop.visible = false; g.add(pop);
+  g.position.set(-0.04, 0.86, 0); g.rotation.set(-0.08, 0, -0.1);
+  const parts = { pop, popT: -9 };
+  return blank({ group: g, parts,
+    popOut(T) { parts.popT = T + 0.25; },
+    update(st) {
+      const pp = (st.T - parts.popT) / 1.3; pop.visible = pp > 0 && pp < 1;
+      if (pop.visible) { pop.position.y = 0.72 + Math.sin(Math.PI * pp) * 0.55; pop.scale.setScalar(Math.min(1, pp * 6, (1 - pp) * 6)); }
+    },
+    hide() { parts.popT = -9; pop.visible = false; } });
+}
+
+function buildPirate(kit) {
+  const g = new THREE.Group();
+  const black = kit.felt(0x1c1a1e), gold = new THREE.MeshPhysicalMaterial({ color: 0xd9a93a, metalness: 0.7, roughness: 0.3 });
+  const bp = []; for (let i = 0; i <= 12; i++) bp.push(new THREE.Vector2(0.45 + 0.6 * i / 12, 0.025)); for (let i = 12; i >= 0; i--) bp.push(new THREE.Vector2(0.45 + 0.6 * i / 12, -0.025));
+  const geo = new THREE.LatheGeometry(bp, 120), p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i), r = Math.hypot(x, z), phi = Math.atan2(x, z), k = clamp((r - 0.45) / 0.6);
+    const s = 1 + 0.14 * Math.cos(3 * phi) * k;
+    p.setX(i, x * s); p.setZ(i, z * s); p.setY(i, p.getY(i) + 0.55 * k * k * (0.5 - 0.5 * Math.cos(3 * phi)));
+  }
+  geo.computeVertexNormals(); g.add(new THREE.Mesh(geo, black));
+  const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.47, 0.36, 48), black); crown.position.y = 0.18; g.add(crown);
+  const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 24), gold); coin.rotation.x = Math.PI / 2 - 0.15; coin.position.set(0, 0.2, 0.47); g.add(coin);
+  g.position.set(0, 0.8, 0); g.rotation.set(-0.14, 0.12, 0.06);
+
+  // garfio en la mano derecha
+  const hook = new THREE.Group(); const metal = new THREE.MeshPhysicalMaterial({ color: 0xc9ced6, metalness: 0.9, roughness: 0.18 });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.22, 16), metal); shaft.position.y = -0.2; hook.add(shaft);
+  const curve = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.034, 12, 32, Math.PI * 1.25), metal); curve.rotation.x = Math.PI; curve.position.set(-0.1, -0.31, 0); hook.add(curve);
+  const tipA = -Math.PI * 1.25, tip = new THREE.Mesh(new THREE.ConeGeometry(0.034, 0.08, 12), metal);
+  tip.position.set(-0.1 + Math.cos(tipA) * 0.1, -0.31 - Math.sin(tipA) * 0.1, 0); tip.rotation.z = Math.PI / 4; hook.add(tip);
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.17, 0.05, 24), metal); plate.position.y = -0.12; hook.add(plate);
+  hook.scale.set(-1.5, 1.5, 1.5); hook.position.y = 0.06;
+
+  // parche sobre el ojo derecho y su correa alrededor de la cabeza
+  const pm = new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.7 });
+  const patch = new THREE.Group(); const d = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32), pm); d.scale.y = 1.3; patch.add(d);
+  kit.onSurface(patch, 0.3, 0.02, 0.05);
+  const pt = new THREE.Vector3(0.3, 0.02, 0.95).normalize(), n = pt.clone().cross(new THREE.Vector3(-0.6, 0.8, 0)).normalize();
+  const strap = new THREE.Mesh(new THREE.TorusGeometry(1.012, 0.018, 8, 120), pm); strap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n); kit.face.add(strap);
+
+  return blank({ group: g, props: [hook], face: [patch, strap], handMaterial: [null, kit.felt(0x3a2a20)], parts: { hook },
+    update(st) { hook.rotation.z = st.busy ? Math.sin(st.T * 6) * 0.3 : hook.rotation.z * 0.9; } });
+}
+
 const DEFS = [
   { key: 'none', label: 'Ninguno', emoji: '🚫', build: () => null },
   { key: 'santa', label: 'Navidad', emoji: '🎅', build: buildSanta },
@@ -299,6 +379,9 @@ const DEFS = [
   { key: 'astro', label: 'Astronauta', emoji: '🧑‍🚀', build: buildAstro },
   { key: 'hardhat', label: 'Casco de obra', emoji: '👷', build: buildHardhat },
   { key: 'phones', label: 'Audífonos', emoji: '🎧', build: buildPhones },
+  { key: 'ninja', label: 'Ninja', emoji: '🥷', build: buildNinja },
+  { key: 'magic', label: 'Mago', emoji: '🎩', build: buildMagic },
+  { key: 'pirate', label: 'Pirata', emoji: '🏴‍☠️', build: buildPirate },
 ];
 
 export const ACCESSORY_LIST = DEFS.map(({ key, label, emoji }) => ({ key, label, emoji }));
