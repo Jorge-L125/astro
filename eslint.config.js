@@ -11,7 +11,7 @@ const rules = {
 };
 
 module.exports = [
-  { ignores: ['node_modules/', 'coverage/', 'dist/', 'out/'] },
+  { ignores: ['node_modules/', 'coverage/', 'dist/', 'out/', 'docs/'] },
   js.configs.recommended,
   {
     // Proceso principal, preload, hooks, scripts y pruebas: Node con CommonJS.

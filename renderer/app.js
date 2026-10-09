@@ -4,6 +4,7 @@ import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 import { groupDenials } from './tools.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
+import { ACCESSORY_LIST } from './accessories.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -25,7 +26,6 @@ const store = {
   set(k, v) { try { localStorage.setItem('astro-' + k, v); } catch { /* sin almacenamiento */ } },
 };
 const cfg = { color: store.get('color', '#ff6b4a'), side: store.get('side', 'right'), theme: store.get('theme', 'auto'), glass: store.get('glass', 'glass'), acc: store.get('acc', 'none') };
-const ACCESSORIES = [['none', 'Ninguno', '🚫'], ['santa', 'Navidad', '🎅'], ['ghost', 'Fantasma', '👻'], ['vampire', 'Vampiro', '🧛'], ['witch', 'Bruja', '🧙‍♀️'], ['party', 'Fiesta', '🥳'], ['cowboy', 'Vaquero', '🤠']];
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
   const f = v => clamp(Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt), 0, 255);
@@ -130,7 +130,7 @@ function setAccessory(k, react) {
   gota.setAccessory(k, react);
   [...$('accs').children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
 }
-ACCESSORIES.forEach(([k, label, emoji]) => {
+ACCESSORY_LIST.forEach(({ key: k, label, emoji }) => {
   const b = document.createElement('button');
   b.textContent = emoji; b.title = label; b.setAttribute('aria-label', label); b.dataset.k = k;
   b.onclick = () => setAccessory(k, true);
