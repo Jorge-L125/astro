@@ -364,7 +364,7 @@ body.glass .cloud.you{background:color-mix(in srgb,var(--accent) 84%,transparent
 /* Ajustes, la barra de botones y el panel lateral: el mismo vidrio, algo más opaco porque se abren
    sobre las nubes. Con «Glass de color» (body.tint) llevan además un reflejo del color de Astro arriba,
    el borde de ese tono y lo elegido teñido, como los interruptores. */
-body.glass .settings,body.glass .toolbar,body.glass .panel{
+body.glass .settings,body.glass .toolbar,body.glass .panel,body.glass .ctxpop,body.glass .ctxring{
   background:linear-gradient(160deg,var(--glass-panel) 0%,color-mix(in srgb,var(--glass-panel) 94%,transparent) 60%,var(--glass-panel) 100%);
   -webkit-backdrop-filter:blur(22px) saturate(1.8);backdrop-filter:blur(22px) saturate(1.8);
   border:1px solid var(--glass-edge);
@@ -375,7 +375,7 @@ body.glass .seg{background:color-mix(in srgb,var(--ink) 8%,transparent)}
 body.glass .seg button[aria-pressed="true"]{background:color-mix(in srgb,var(--glass-lit) 35%,var(--glass-panel));color:var(--ink);box-shadow:inset 1px 1px 0 var(--glass-lit),0 1px 4px rgba(0,0,0,.12)}
 body.glass .accs button,body.glass .tool,body.glass .quit{background:color-mix(in srgb,var(--glass-lit) 8%,transparent)}
 body.glass .sheet{background:color-mix(in srgb,var(--sheet) 88%,transparent)}
-body.tint .settings,body.tint .toolbar,body.tint .panel{
+body.tint .settings,body.tint .toolbar,body.tint .panel,body.tint .ctxpop,body.tint .ctxring{
   background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 18%,var(--glass-panel)) 0%,var(--glass-panel) 45%,var(--glass-panel) 75%,color-mix(in srgb,var(--accent) 9%,var(--glass-panel)) 100%);
   border-color:color-mix(in srgb,var(--accent) 38%,var(--glass-edge));
   box-shadow:inset 1.5px 1.5px 0 var(--glass-lit),inset 0 0 22px color-mix(in srgb,var(--accent) 12%,transparent),var(--shadow)}
