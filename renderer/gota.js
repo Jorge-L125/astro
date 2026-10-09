@@ -2,6 +2,7 @@
 // se divide en sesiones y lanza mini-gotas (ayudantes) que orbitan mientras trabajan.
 import * as THREE from '../node_modules/three/build/three.module.js';
 import { createAccessories, isAccessory, showBuilt } from './accessories.js';
+import { createFx } from './fx.js';
 
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -157,25 +158,14 @@ export function createGota(host, opts = {}) {
   const kit = { THREE, bot, accRoot, hands, face, onSurface, sway, scene, camera, bodyMaterial: mShell,
     felt: c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }), agents: () => agents };
   const accs = createAccessories(kit);
+  const fx = createFx(THREE, scene);
+  const _at = new THREE.Vector3();
+  // Lo que reciben las reacciones de un diseño.
+  const moveKit = () => ({ play, setExpr, say, fx, at: bot.localToWorld(_at.set(0, 1.1, 0.2)), built: acc, T, pick });
+  let nextAccIdle = 25 + Math.random() * 20;
+  const runOf = new Map(); // id de sesión -> { n, err }: ayudantes de la tanda en curso
+  let doneLine = null; // frase de fin pendiente: { text, until }
   let accName = 'none', acc = null, accLook = null;
-  const ACC_REACT = {
-    none: () => { play('hop'); setExpr('happy', 1); say('Así estoy más fresco.'); },
-    santa: () => { play('jump'); setExpr('joy', 1.4); say('¡Jo, jo, jo! Feliz Navidad.'); },
-    ghost: () => { play('recoil'); setExpr('surprised', 1.2); say('¡Buuu! ¿Te asusté?'); },
-    vampire: () => { play('spin'); setExpr('wink', 1.4); say('Bleh, bleh… vengo por tus tokens.'); },
-    witch: () => { play('spin'); setExpr('proud', 1.4); say('¡Abracadabra!'); },
-    party: () => { play('dance'); setExpr('joy', 3); say('¡A celebrar!'); },
-    cowboy: () => { play('jump'); setExpr('wink', 1.4); say('¡Yija! Hay nuevo sheriff en la esquina.'); },
-    astro: () => { play('jump'); setExpr('joy', 1.6); say('Houston, compilamos sin errores.'); },
-    hardhat: () => { play('nod'); setExpr('focus', 1.6); say('Zona de obra: construyendo tu código.'); },
-    phones: () => { play('dance'); setExpr('happy', 3); say('Modo concentración activado.'); },
-    ninja: () => { play('spin'); setExpr('focus', 1.4); say('¡Hiya! Silencioso como un commit a medianoche.'); },
-    magic: () => { play('hop'); setExpr('proud', 1.8); if (acc && acc.popOut) acc.popOut(T); say('¡Ta-dá!'); },
-    pirate: () => { play('wave'); setExpr('wink', 1.4); say('¡Al abordaje, grumete!'); },
-    detective: () => { play('lookaround'); setExpr('curious', 2); say('Elemental, querido usuario. Busquemos ese bug.'); },
-    viking: () => { play('jump'); setExpr('proud', 1.6); say('¡Por Odín! A conquistar el backlog.'); },
-    chef: () => { play('nod'); setExpr('happy', 1.6); say('¡Oui, chef! Hoy cocinamos código.'); },
-  };
   function setAccessory(n, react) {
     if (!isAccessory(n)) n = 'none';
     const next = accs.get(n);
@@ -184,7 +174,8 @@ export function createGota(host, opts = {}) {
     accName = n; acc = next;
     showBuilt(acc, true);
     hands.forEach((h, i) => { h.material = (acc && acc.handMaterial && acc.handMaterial[i]) || mShell; });
-    if (react && isLive()) { wake(true); action = null; (ACC_REACT[n] || ACC_REACT.none)(); }
+    fx.clear();
+    if (react && isLive()) { wake(true); action = null; accs.def(n).react.on(moveKit()); }
   }
 
   // suelo
@@ -401,6 +392,8 @@ export function createGota(host, opts = {}) {
     const rm = new THREE.MeshBasicMaterial({ color: base.clone(), transparent: true, opacity: 0, depthWrite: false });
     const ring = new THREE.Mesh(gRingFx, rm); ring.rotation.x = -Math.PI / 2; ring.visible = false; scene.add(ring);
     agents.push({ id, sid, status: 'working', mat, m, ring, rm, born: T, endT: -1, vis: 0, pos: root.position.clone(), gone: false });
+    if (!busyOf.get(sid)) runOf.set(sid, { n: 0, err: 0 });
+    runOf.get(sid).n++;
     busyOf.set(sid, true);
     if (sid === activeId) {
       if (mode === 'sleep') wake(true);
@@ -412,6 +405,19 @@ export function createGota(host, opts = {}) {
     if (!a || a.status !== 'working') return;
     a.status = ok ? 'done' : 'error'; a.endT = T;
     busyOf.set(a.sid, agents.some(x => x.sid === a.sid && x.status === 'working'));
+    const run = runOf.get(a.sid);
+    if (run && !ok) run.err++;
+    // al acabar la tanda sin errores, el diseño lo celebra a su manera
+    if (run && !busyOf.get(a.sid) && a.sid === activeId && !run.err && isLive()) {
+      const n = run.n;
+      setTimeout(() => {
+        if (!isLive() || swap) return;
+        const d = accs.def(accName);
+        if (d.react.done) d.react.done(moveKit());
+        // la frase espera a que Claude termine de responder (antes no se vería)
+        doneLine = { text: d.doneLine(n), until: T + 60 };
+      }, 800);
+    }
     if (a.sid !== activeId) { removeAgent(a); return; }
     if (!ok && isLive()) { wake(true); setExpr('worried', 1.8); play('shake'); }
   }
@@ -451,6 +457,7 @@ export function createGota(host, opts = {}) {
     lastActive = T;
     if (mode !== 'sleep') return;
     setMode('awake'); setExpr('surprised', 0.8); play(poked ? 'jump' : 'recoil');
+    nextAccIdle = T + 25 + Math.random() * 20;
     if (!silent) say(pick(['¡Ah! Estaba descansando los circuitos.', '¡Despierto! Bueno, casi.', '¿Eh? ¿Qué me perdí?']));
   }
   function minimize() {
@@ -736,8 +743,14 @@ export function createGota(host, opts = {}) {
     // actitudes en reposo: se aburre, bosteza antes de dormirse y se pone tímida si la miras mucho
     if (T - lastActive < 1) { boredDone = false; yawnDone = false; }
     if (awake && !action && !down && !swap && !petting && !appBusy && !talking && !busyOf.get(activeId)) {
-      if (T - lastActive > SLEEP_AFTER - 5 && !yawnDone) { yawnDone = true; play('yawn'); setExpr('yawn', 1.3); }
-      else if (T - lastActive > BORED_AFTER && !boredDone) { boredDone = true; play('lookaround'); setExpr('bored', 2.6); say(pick(['¿Hacemos algo?', 'Qué tranquilo está esto…', 'Mmm… me aburro un poquito.'])); }
+      const idleMove = acc && accs.def(accName).react.idle;
+      if (idleMove && T > nextAccIdle) { nextAccIdle = T + 25 + Math.random() * 20; idleMove(moveKit()); }
+      else if (T - lastActive > SLEEP_AFTER - 5 && !yawnDone) { yawnDone = true; play('yawn'); setExpr('yawn', 1.3); }
+      else if (T - lastActive > BORED_AFTER && !boredDone) {
+        boredDone = true;
+        if (idleMove) { nextAccIdle = T + 25 + Math.random() * 20; idleMove(moveKit()); }
+        else { play('lookaround'); setExpr('bored', 2.6); say(pick(['¿Hacemos algo?', 'Qué tranquilo está esto…', 'Mmm… me aburro un poquito.'])); }
+      }
       else if (hover && T - hoverSince > 3.5 && T - lastShy > 15) { lastShy = T; setExpr('shy', 2.2); play('giggle'); say(pick(['¿Por qué me miras tanto?', 'Me pones nervioso…', 'Jeje… ¿qué pasa?'])); }
     }
 
@@ -798,7 +811,8 @@ export function createGota(host, opts = {}) {
     root.position.set(o.x + a.x + sw.x, o.y + a.y + (bob + talkBob) * o.face + sw.y, sw.z);
     bot.rotation.set(look.rx + a.rx + (asleep ? 0.12 : 0), look.ry + a.ry + dragRY, a.rz + thinkSway + (asleep ? Math.sin(T * 0.6) * 0.05 : 0));
     const sy = o.sy * a.sy * breath, sxz = 1 / Math.sqrt(sy);
-    bot.scale.set(o.s * sxz * a.sxw * sw.s, o.s * sy * sw.s, o.s * sxz * sw.s);
+    const vk = Math.max(0.001, (acc && acc.parts.vanishK) ?? 1);
+    bot.scale.set(o.s * sxz * a.sxw * sw.s * vk, o.s * sy * sw.s * vk, o.s * sxz * sw.s * vk);
     applyFace(blink, o.face);
 
     const hw = o.face;
@@ -821,6 +835,8 @@ export function createGota(host, opts = {}) {
       if (![spring.ax, spring.vx, spring.az, spring.vz, spring.pvy].every(Number.isFinite)) Object.assign(spring, { ax: 0, vx: 0, az: 0, vz: 0, pvy: 0 });
       sway.forEach(g => { g.rotation.z = g.userData.bend + spring.az * 0.6 * g.userData.w; g.rotation.x = spring.ax * 0.5 * g.userData.w; });
     }
+    fx.update(dt);
+    if (doneLine && !appBusy && !talking && isLive()) { if (T < doneLine.until) say(doneLine.text); doneLine = null; }
     wheelAcc *= Math.exp(-1.5 * dt); circAcc *= Math.exp(-0.6 * dt);
 
     // suelo
@@ -902,6 +918,8 @@ export function createGota(host, opts = {}) {
       setExpr('love', 2.2); play('giggle');
     },
     // vuelves al computador tras un rato sin usarlo
+    // gesto de reposo del diseño puesto, ya (para probarlo sin esperar)
+    outfitIdle: () => { const d = acc && accs.def(accName); if (d && d.react.idle) d.react.idle(moveKit()); },
     welcomeBack: () => {
       if (!isLive() || appBusy) return;
       wake(true); setExpr('love', 1.8); play('jump'); say('¡Volviste! Te extrañé.');

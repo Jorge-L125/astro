@@ -1413,6 +1413,8 @@ api.config().then(async c => {
 if (new URLSearchParams(location.search).has('debug')) {
   window.astroDebug = {
     sessions: () => sessions.map(s => ({ id: s.id, name: s.name, busy: s.busy, active: s === active })),
+    // gesto de reposo del diseño puesto, sin esperar
+    outfitIdle: () => gota.outfitIdle(),
     // Simula el uso de contexto de la sesión activa (p. ej. context(160000, 200000) para ver el anillo).
     context: (used, window) => trackContext(active, { context: { used, window } }),
     newSession,

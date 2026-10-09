@@ -5,6 +5,7 @@
 import * as THREE from '../node_modules/three/build/three.module.js';
 
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const bump = (p, a, b) => (p >= a && p <= b ? Math.sin(Math.PI * (p - a) / (b - a)) : 0);
 
 let M = null; // materiales compartidos entre diseños, creados una vez
 function mats(kit) {
@@ -79,10 +80,17 @@ function buildGhost(kit) {
     p.setY(i, y + w * 0.09 * k * k); p.setX(i, p.getX(i) * s); p.setZ(i, p.getZ(i) * s);
   }
   geo.computeVertexNormals();
-  const g = new THREE.Group(); const sheet = new THREE.Mesh(geo, m.sheet); g.add(sheet);
-  const parts = { sheet };
-  return blank({ group: g, handMaterial: [m.sheet, m.sheet], eyesDark: true, faceLift: 1.09, parts,
-    update: st => { sheet.rotation.y = st.T * 0.35; } });
+  const sheetMat = m.sheet.clone();
+  const g = new THREE.Group(); const sheet = new THREE.Mesh(geo, sheetMat); g.add(sheet);
+  const parts = { sheet, fadeT: -9 };
+  return blank({ group: g, handMaterial: [sheetMat, sheetMat], eyesDark: true, faceLift: 1.09, parts,
+    fade(T) { parts.fadeT = T; },
+    update(st) {
+      sheet.rotation.y = st.T * 0.35;
+      const f = bump(st.T - parts.fadeT, 0, 1.2);
+      sheetMat.transparent = f > 0; sheetMat.opacity = 1 - 0.55 * f;
+    },
+    hide() { parts.fadeT = -9; sheetMat.transparent = false; sheetMat.opacity = 1; } });
 }
 
 function buildVampire(kit) {
@@ -102,7 +110,10 @@ function buildVampire(kit) {
     fm.rotation.z = Math.PI; fm.position.y = -0.035; fm.scale.z = 0.55; f.add(fm);
     return kit.onSurface(f, 0.085 * sg, -0.25, 0.004);
   });
-  return blank({ group: g, face: fangs });
+  const parts = { flapT: -9 };
+  return blank({ group: g, face: fangs, parts,
+    flap(T) { parts.flapT = T; },
+    update(st) { g.scale.x = 1 + 0.12 * bump(st.T - parts.flapT, 0, 0.8); } });
 }
 
 function buildCowboy(kit) {
@@ -124,7 +135,10 @@ function buildCowboy(kit) {
   const crown = new THREE.Mesh(crownGeo, mTan); crown.position.y = 0.26; g.add(crown);
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.485, 0.5, 0.1, 48, 1, true), mLeather); band.position.y = 0.06; g.add(band);
   g.position.set(0.03, 0.82, -0.02); g.rotation.set(-0.16, 0, 0.1);
-  return blank({ group: g });
+  const parts = { tipT: -9 };
+  return blank({ group: g, parts,
+    tip(T) { parts.tipT = T; },
+    update(st) { g.rotation.x = -0.16 - 0.35 * bump(st.T - parts.tipT, 0, 0.9); } });
 }
 
 // Esfera partida en dos: lo de fuera de la ventana y lo de dentro (para cascos con visor o capuchas).
@@ -307,8 +321,12 @@ function buildNinja() {
   const shuriken = new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({ color: 0xc4c9d2, metalness: 0.85, roughness: 0.22 }));
   shuriken.scale.setScalar(1.5); shuriken.position.set(0.24, 0.26, 0.28);
 
-  return blank({ group: g, props: [shuriken], handMaterial: [hood, hood], parts: { tails, shuriken },
+  const parts = { tails, shuriken, vanishT: -9, vanishK: 1 };
+  return blank({ group: g, props: [shuriken], handMaterial: [hood, hood], parts,
+    vanish(T) { parts.vanishT = T; },
+    hide() { parts.vanishT = -9; parts.vanishK = 1; },
     update(st) {
+      parts.vanishK = 1 - bump(st.T - parts.vanishT, 0, 0.7);
       tails.forEach((p, i) => { p.rotation.x = 0.35 + 0.15 * Math.sin(st.T * (st.busy ? 10 : 6) + i * 1.3) - st.spring.ax * 0.8; p.rotation.y = 0.12 * Math.sin(st.T * 4.5 + i); });
       shuriken.rotation.z = st.T * (st.busy ? 12 : 5);
     } });
@@ -513,23 +531,91 @@ function buildChef() {
     hide() { parts.potK = 0; pot.visible = false; } });
 }
 
+// «1 tarea terminada» / «3 tareas terminadas»; fijo: el verbo no concuerda en número («al punto»).
+const tareas = (n, verbo = 'terminada', fijo = false) => (fijo ? (n === 1 ? '1 tarea' : `${n} tareas`) + ' ' + verbo
+  : n === 1 ? `1 tarea ${verbo}` : `${n} tareas ${verbo}s`);
+
+// Reacciones: on (al ponérselo), idle (gesto de reposo), done (al terminar los ayudantes).
+// Reciben m = { play, setExpr, say, fx, at, built, T, pick } de la gota.
 const DEFS = [
-  { key: 'none', label: 'Ninguno', emoji: '🚫', build: () => null },
-  { key: 'santa', label: 'Navidad', emoji: '🎅', build: buildSanta },
-  { key: 'ghost', label: 'Fantasma', emoji: '👻', build: buildGhost },
-  { key: 'vampire', label: 'Vampiro', emoji: '🧛', build: buildVampire },
-  { key: 'witch', label: 'Bruja', emoji: '🧙‍♀️', build: buildWitch },
-  { key: 'party', label: 'Fiesta', emoji: '🥳', build: buildParty },
-  { key: 'cowboy', label: 'Vaquero', emoji: '🤠', build: buildCowboy },
-  { key: 'astro', label: 'Astronauta', emoji: '🧑‍🚀', build: buildAstro },
-  { key: 'hardhat', label: 'Casco de obra', emoji: '👷', build: buildHardhat },
-  { key: 'phones', label: 'Audífonos', emoji: '🎧', build: buildPhones },
-  { key: 'ninja', label: 'Ninja', emoji: '🥷', build: buildNinja },
-  { key: 'magic', label: 'Mago', emoji: '🎩', build: buildMagic },
-  { key: 'pirate', label: 'Pirata', emoji: '🏴‍☠️', build: buildPirate },
-  { key: 'detective', label: 'Detective', emoji: '🕵️', build: buildDetective },
-  { key: 'viking', label: 'Vikingo', emoji: '🪓', build: buildViking },
-  { key: 'chef', label: 'Chef', emoji: '👨‍🍳', build: buildChef },
+  { key: 'none', label: 'Ninguno', emoji: '🚫', build: () => null,
+    react: { on: m => { m.play('hop'); m.setExpr('happy', 1); m.say('Así estoy más fresco.'); }, idle: null, done: null },
+    doneLine: n => `¡Listo! ${tareas(n)}.` },
+  { key: 'santa', label: 'Navidad', emoji: '🎅', build: buildSanta,
+    react: { on: m => { m.play('jump'); m.setExpr('joy', 1.4); m.say('¡Jo, jo, jo! Feliz Navidad.'); },
+      idle: m => { m.play('giggle'); m.say(m.pick(['Jo, jo… ¿has sido bueno este año?', 'Jo, jo, jo.'])); },
+      done: m => { m.play('spin'); m.setExpr('joy', 1.4); } },
+    doneLine: n => `¡Regalo envuelto! ${tareas(n)}.` },
+  { key: 'ghost', label: 'Fantasma', emoji: '👻', build: buildGhost,
+    react: { on: m => { m.play('recoil'); m.setExpr('surprised', 1.2); m.say('¡Buuu! ¿Te asusté?'); },
+      idle: m => { m.built.fade(m.T); m.say('Buuu…'); },
+      done: m => { m.play('hop'); } },
+    doneLine: n => `¡Buuu-ena esa! ${tareas(n)}.` },
+  { key: 'vampire', label: 'Vampiro', emoji: '🧛', build: buildVampire,
+    react: { on: m => { m.play('spin'); m.setExpr('wink', 1.4); m.say('Bleh, bleh… vengo por tus tokens.'); },
+      idle: m => { m.built.flap(m.T); m.setExpr('wink', 1); },
+      done: m => { m.play('spin'); } },
+    doneLine: () => 'Delicioso. Todo terminado.' },
+  { key: 'witch', label: 'Bruja', emoji: '🧙‍♀️', build: buildWitch,
+    react: { on: m => { m.play('spin'); m.setExpr('proud', 1.4); m.fx.burst('sparkle', m.at, 16); m.say('¡Abracadabra!'); },
+      idle: m => { m.fx.burst('sparkle', m.at, 14); m.setExpr('proud', 1); },
+      done: m => { m.fx.burst('sparkle', m.at, 30); m.play('spin'); } },
+    doneLine: n => `¡Hechizo completo! ${tareas(n)}.` },
+  { key: 'party', label: 'Fiesta', emoji: '🥳', build: buildParty,
+    react: { on: m => { m.play('dance'); m.setExpr('joy', 3); m.fx.burst('confetti', m.at, 30); m.say('¡A celebrar!'); },
+      idle: m => { m.fx.burst('confetti', m.at, 24); m.play('hop'); },
+      done: m => { m.fx.burst('confetti', m.at, 40); m.play('dance'); } },
+    doneLine: n => `¡A celebrar! ${tareas(n)}.` },
+  { key: 'cowboy', label: 'Vaquero', emoji: '🤠', build: buildCowboy,
+    react: { on: m => { m.play('jump'); m.setExpr('wink', 1.4); m.say('¡Yija! Hay nuevo sheriff en la esquina.'); },
+      idle: m => { m.built.tip(m.T); m.say('Buenas, forastero.'); },
+      done: m => { m.play('spin'); } },
+    doneLine: () => '¡Yija! Trabajo terminado.' },
+  { key: 'astro', label: 'Astronauta', emoji: '🧑‍🚀', build: buildAstro,
+    react: { on: m => { m.play('jump'); m.setExpr('joy', 1.6); m.say('Houston, compilamos sin errores.'); },
+      idle: null, // los meteoros ya son su gesto
+      done: m => { m.play('jump'); m.setExpr('joy', 1.4); } },
+    doneLine: () => 'Houston, misión cumplida.' },
+  { key: 'hardhat', label: 'Casco de obra', emoji: '👷', build: buildHardhat,
+    react: { on: m => { m.play('nod'); m.setExpr('focus', 1.6); m.say('Zona de obra: construyendo tu código.'); },
+      idle: m => { m.play('lookaround'); m.setExpr('focus', 1.4); },
+      done: m => { m.play('nod'); } },
+    doneLine: () => 'Obra terminada.' },
+  { key: 'phones', label: 'Audífonos', emoji: '🎧', build: buildPhones,
+    react: { on: m => { m.play('dance'); m.setExpr('happy', 3); m.say('Modo concentración activado.'); },
+      idle: m => { m.play('dance'); },
+      done: m => { m.play('dance'); } },
+    doneLine: n => `Pista terminada: ${tareas(n)}.` },
+  { key: 'ninja', label: 'Ninja', emoji: '🥷', build: buildNinja,
+    react: { on: m => { m.play('spin'); m.setExpr('focus', 1.4); m.say('¡Hiya! Silencioso como un commit a medianoche.'); },
+      idle: m => { m.fx.burst('smoke', m.at.clone().setY(m.at.y - 1), 12); m.built.vanish(m.T); },
+      done: m => { m.fx.burst('smoke', m.at, 10); } },
+    doneLine: () => 'Misión silenciosa cumplida.' },
+  { key: 'magic', label: 'Mago', emoji: '🎩', build: buildMagic,
+    react: { on: m => { m.play('hop'); m.setExpr('proud', 1.8); m.built.popOut(m.T); m.say('¡Ta-dá!'); },
+      idle: m => { m.built.popOut(m.T); },
+      done: m => { m.built.popOut(m.T); m.fx.burst('sparkle', m.at, 20); } },
+    doneLine: n => `¡Ta-dá! ${tareas(n)}.` },
+  { key: 'pirate', label: 'Pirata', emoji: '🏴‍☠️', build: buildPirate,
+    react: { on: m => { m.play('wave'); m.setExpr('wink', 1.4); m.say('¡Al abordaje, grumete!'); },
+      idle: m => { m.play('scratch'); m.say('¡Tierra a la vista!'); },
+      done: m => { m.play('wave'); } },
+    doneLine: () => '¡Botín asegurado!' },
+  { key: 'detective', label: 'Detective', emoji: '🕵️', build: buildDetective,
+    react: { on: m => { m.play('lookaround'); m.setExpr('curious', 2); m.say('Elemental, querido usuario. Busquemos ese bug.'); },
+      idle: m => { m.play('lookaround'); m.setExpr('curious', 1.6); },
+      done: m => { m.play('nod'); m.setExpr('proud', 1.4); } },
+    doneLine: n => `Caso cerrado: ${tareas(n, 'resuelta')}.` },
+  { key: 'viking', label: 'Vikingo', emoji: '🪓', build: buildViking,
+    react: { on: m => { m.play('jump'); m.setExpr('proud', 1.6); m.say('¡Por Odín! A conquistar el backlog.'); },
+      idle: m => { m.play('hop'); },
+      done: m => { m.play('jump'); m.setExpr('proud', 1.6); } },
+    doneLine: n => `¡Victoria! ${tareas(n, 'conquistada')}.` },
+  { key: 'chef', label: 'Chef', emoji: '👨‍🍳', build: buildChef,
+    react: { on: m => { m.play('nod'); m.setExpr('happy', 1.6); m.say('¡Oui, chef! Hoy cocinamos código.'); },
+      idle: m => { m.play('nod'); m.say('Mmm… le falta una pizca de sal.'); },
+      done: m => { m.play('jump'); m.setExpr('joy', 1.4); } },
+    doneLine: n => `¡Listo para servir! ${tareas(n, 'al punto', true)}.` },
 ];
 
 export const ACCESSORY_LIST = DEFS.map(({ key, label, emoji }) => ({ key, label, emoji }));

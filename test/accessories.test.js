@@ -53,3 +53,33 @@ test('cada diseño se construye en Node y deja sus piezas ocultas', async () => 
     if (b.update) b.update({ T: 1, dt: 0.016, busy: true, awake: true, acting: false, hands: kit.hands, hw: 1, helpers: [], spring: { ax: 0, az: 0 }, look: {}, setLook() {} });
   }
 });
+
+test('cada diseño tiene reacción al ponérselo, gestos opcionales y frase de fin', async () => {
+  const { createAccessories, ACCESSORY_LIST } = await load();
+  const accs = createAccessories(await fakeKit());
+  for (const { key } of ACCESSORY_LIST) {
+    const d = accs.def(key);
+    assert.equal(typeof d.react.on, 'function', key);
+    assert.ok(d.react.idle === null || typeof d.react.idle === 'function', key);
+    assert.ok(d.react.done === null || typeof d.react.done === 'function', key);
+    assert.equal(typeof d.doneLine(1), 'string', key);
+    assert.equal(typeof d.doneLine(3), 'string', key);
+  }
+  assert.equal(accs.def('chef').doneLine(2), '¡Listo para servir! 2 tareas al punto.');
+  assert.equal(accs.def('none').doneLine(1), '¡Listo! 1 tarea terminada.');
+  assert.equal(accs.def('viking').doneLine(3), '¡Victoria! 3 tareas conquistadas.');
+});
+
+test('las reacciones usan lo que les pasa la gota', async () => {
+  const THREE = await three();
+  const { createAccessories, ACCESSORY_LIST } = await load();
+  const accs = createAccessories(await fakeKit());
+  for (const { key } of ACCESSORY_LIST.filter(a => a.key !== 'party')) {
+    const calls = [];
+    const m = { play: x => calls.push(x), setExpr: () => {}, say: () => {}, pick: a => a[0], T: 1,
+      fx: { burst: () => 0 }, at: new THREE.Vector3(), built: accs.get(key) };
+    const d = accs.def(key);
+    for (const r of ['on', 'idle', 'done']) if (d.react[r]) d.react[r](m);
+    if (d.react.on && key !== 'magic') assert.ok(calls.length, key + ' hace algún gesto al ponérselo');
+  }
+});
