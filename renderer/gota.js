@@ -304,20 +304,38 @@ export function createGota(host, opts = {}) {
     const b = new THREE.Mesh(miniBodyGeo, mat); g.add(b);
     const mEyes = [-1, 1].map(sg => {
       const e = new THREE.Mesh(gPill, eyeMat), x = 0.3 * sg, y = 0.02, z = Math.sqrt(1 - x * x - y * y);
-      e.position.set(x, y, z + 0.008); e.rotation.set(-Math.atan2(y, z), Math.atan2(x, z), 0); e.scale.z = 0.35; g.add(e); return e;
+      e.position.set(x, y, z + 0.008); e.rotation.set(-Math.atan2(y, z), Math.atan2(x, z), 0); e.scale.z = 0.35; g.add(e);
+      e.userData.base = { x: e.position.x, y: e.position.y, z: e.position.z };
+      return e;
     });
     scene.add(g);
-    return { g, mat, eyeMat, b, eyes: mEyes, vis: 1, blinkT: -1, nextBlink: T + 1 + Math.random() * 3, jumpT: -1, anim: null, slot: SLOTS[0], color: hex, pending: false };
+    return { g, mat, eyeMat, b, eyes: mEyes, vis: 1, blinkT: -1, nextBlink: T + 1 + Math.random() * 3, jumpT: -1, anim: null, slot: SLOTS[0], color: hex, pending: false, acc: 'none', accObj: null };
   }
-  function setMiniColor(mv, hex) { mv.color = hex; mv.mat.color.set(hex); mv.eyeMat.color.set(eyeHex(hex)); }
+  const miniEyes = mv => { const b = accs.get(mv.acc); return b && b.eyesDark ? 0x141416 : eyeHex(mv.color); };
+  function setMiniColor(mv, hex) { mv.color = hex; mv.mat.color.set(hex); mv.eyeMat.color.set(miniEyes(mv)); }
+  // Copia del diseño en una gota de atrás: comparte formas y materiales, sin objetos de mano ni animación.
+  function setMiniAccessory(mv, key) {
+    if (mv.accObj) { mv.g.remove(mv.accObj); mv.accObj = null; }
+    mv.acc = isAccessory(key) ? key : 'none';
+    const b = accs.get(mv.acc);
+    if (b) {
+      mv.accObj = b.group.clone();
+      mv.accObj.visible = true;
+      mv.g.add(mv.accObj);
+    }
+    const lift = b ? b.faceLift : 1;
+    mv.eyes.forEach(e => { const p = e.userData.base; e.position.set(p.x * lift, p.y * lift, p.z * lift); });
+    mv.eyeMat.color.set(miniEyes(mv));
+  }
   function layoutSlots() { let i = 0; for (const [id, mv] of minis) { mv.slot = SLOTS[i++] || SLOTS[SLOTS.length - 1]; mv.b.userData.sessionId = id; } }
 
-  function addSession(id, hex) {
+  function addSession(id, hex, accKey = 'none') {
     if (minis.size >= SLOTS.length || swap) return false;
     if (mode === 'sleep') wake(true);
     if (mode !== 'awake') return false;
     const mv = makeMini(activeColor);
-    mv.anim = { type: 'split', t: 0, from: new THREE.Color(activeColor), to: hex };
+    mv.anim = { type: 'split', t: 0, from: new THREE.Color(activeColor), to: hex, acc: accKey };
+    setMiniAccessory(mv, accName); // nace como la gota de la que sale y luego se pone el suyo
     mv.color = hex;
     minis.set(id, mv);
     layoutSlots();
@@ -335,11 +353,14 @@ export function createGota(host, opts = {}) {
   }
   function finishSwap() {
     const { id, mv, slot } = swap; swap = null;
-    const prevId = activeId, prevColor = activeColor, nextColor = mv.color;
+    const prevId = activeId, prevColor = activeColor, nextColor = mv.color, prevAcc = accName, nextAcc = mv.acc;
     const entries = [...minis].map(([k, v]) => (k === id ? [prevId, mv] : [k, v]));
     minis.clear(); entries.forEach(([k, v]) => minis.set(k, v));
     mv.anim = null; mv.vis = 1; mv.pending = false;
     setMiniColor(mv, prevColor);
+    setMiniAccessory(mv, prevAcc);
+    setAccessory(nextAcc, false);
+    doneLine = null;
     mv.g.position.set(slot[0], slot[1], slot[2]); mv.g.scale.setScalar(slot[3]);
     activeId = id; activeColor = nextColor;
     bodyColor.set(nextColor); targetColor.set(nextColor);
@@ -445,6 +466,9 @@ export function createGota(host, opts = {}) {
     }
     const hit = ray.intersectObjects(targets, false)[0];
     if (!hit && acc && accRoot.visible && ray.intersectObject(acc.group, true).length) return { type: 'body' };
+    if (!hit && isLive() && !swap) {
+      for (const [id, mv] of minis) if (mv.accObj && !mv.anim && mv.g.visible && ray.intersectObject(mv.accObj, true).length) return { type: 'mini', id };
+    }
     if (!hit) return null;
     if (hit.object.userData.sessionId !== undefined) return { type: 'mini', id: hit.object.userData.sessionId };
     if (hit.object.userData.agentId !== undefined) return { type: 'agent', id: hit.object.userData.agentId };
@@ -631,7 +655,7 @@ export function createGota(host, opts = {}) {
           _sp.set(sl[0], sl[1], sl[2]).normalize().multiplyScalar(0.3);
           _st.lerpVectors(_sp, _st, k); sc = lerp(0.8, sl[3], k);
           mv.mat.color.copy(mv.anim.from).lerp(_sc.set(mv.anim.to), k);
-          if (t > 0.9) { mv.anim = null; setMiniColor(mv, mv.color); }
+          if (t > 0.9) { const k = mv.anim.acc; mv.anim = null; setMiniColor(mv, mv.color); setMiniAccessory(mv, k); }
         } else {
           const k = ease(clamp(t / 0.55));
           _st.lerp(_sp.set(root.position.x, root.position.y, 0.1), k); sc = lerp(sc, 0.25, k);
@@ -898,6 +922,7 @@ export function createGota(host, opts = {}) {
     restore,
     // sesiones
     addSession, switchTo, closeSession, flagSession, clearFlag,
+    setMiniAccessory: (id, key) => { const mv = minis.get(id); if (mv) setMiniAccessory(mv, key); },
     // ayudantes
     spawnAgent, finishAgent, clearAgents,
     highlightAgent: id => { highlightId = id; },
