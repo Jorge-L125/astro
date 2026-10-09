@@ -172,6 +172,9 @@ export function createGota(host, opts = {}) {
     ninja: () => { play('spin'); setExpr('focus', 1.4); say('¡Hiya! Silencioso como un commit a medianoche.'); },
     magic: () => { play('hop'); setExpr('proud', 1.8); if (acc && acc.popOut) acc.popOut(T); say('¡Ta-dá!'); },
     pirate: () => { play('wave'); setExpr('wink', 1.4); say('¡Al abordaje, grumete!'); },
+    detective: () => { play('lookaround'); setExpr('curious', 2); say('Elemental, querido usuario. Busquemos ese bug.'); },
+    viking: () => { play('jump'); setExpr('proud', 1.6); say('¡Por Odín! A conquistar el backlog.'); },
+    chef: () => { play('nod'); setExpr('happy', 1.6); say('¡Oui, chef! Hoy cocinamos código.'); },
   };
   function setAccessory(n, react) {
     if (!isAccessory(n)) n = 'none';

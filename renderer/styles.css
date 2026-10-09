@@ -338,8 +338,8 @@ body.left-side .settings{right:auto;left:calc(var(--char-w) - 10px);transform-or
 .quit{width:100%;border:1px solid var(--hair);background:transparent;border-radius:999px;padding:8px;font-size:13px;cursor:pointer;color:var(--muted)}
 .quit:hover{color:var(--ink);border-color:var(--ink)}
 
-.accs{display:flex;gap:4px;justify-content:space-between}
-.accs button{flex:1 1 0;min-width:0;aspect-ratio:1;max-width:36px;padding:0;border:1px solid var(--hair);background:transparent;border-radius:10px;font-size:18px;line-height:1;display:grid;place-items:center;cursor:pointer;transition:background .15s,transform .15s}
+.accs{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.accs button{min-width:0;aspect-ratio:1;padding:0;border:1px solid var(--hair);background:transparent;border-radius:10px;font-size:18px;line-height:1;display:grid;place-items:center;cursor:pointer;transition:background .15s,transform .15s}
 .accs button:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .accs button:active{transform:scale(.96)}
 .accs button[aria-pressed="true"]{background:color-mix(in srgb,var(--accent) 22%,transparent);border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}

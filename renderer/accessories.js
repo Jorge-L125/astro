@@ -368,6 +368,151 @@ function buildPirate(kit) {
     update(st) { hook.rotation.z = st.busy ? Math.sin(st.T * 6) * 0.3 : hook.rotation.z * 0.9; } });
 }
 
+function buildDetective(kit) {
+  const tex = canvasTex(64, 64, x => {
+    x.fillStyle = '#8a6a48'; x.fillRect(0, 0, 64, 64); x.fillStyle = 'rgba(60,40,24,.45)'; for (let i = 0; i < 64; i += 16) { x.fillRect(i, 0, 5, 64); x.fillRect(0, i, 64, 5); }
+    x.fillStyle = 'rgba(200,170,120,.35)'; for (let i = 8; i < 64; i += 16) { x.fillRect(i, 0, 1, 64); x.fillRect(0, i, 64, 1); }
+  });
+  if (tex) { tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(6, 3); tex.colorSpace = THREE.SRGBColorSpace; }
+  const g = new THREE.Group();
+  const tw = new THREE.MeshStandardMaterial({ color: tex ? 0xffffff : 0x8a6a48, map: tex, roughness: 0.9, side: THREE.DoubleSide });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2), tw); dome.scale.set(1.04, 0.8, 1.06); g.add(dome);
+  [1, -1].forEach(s => { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.04, 40, 1, false, 0, Math.PI), tw);
+    b.scale.set(1.1, 1, 0.9); b.rotation.set(s * 0.32, s > 0 ? -Math.PI / 2 : Math.PI / 2, 0); b.position.set(0, 0.06, s * 1.0); g.add(b); });
+  const bowM = kit.felt(0x5a3f28);
+  [-1, 1].forEach(s => { const l = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 10), bowM); l.scale.set(1.5, 0.6, 0.8); l.position.set(s * 0.12, 0.81, 0); l.rotation.z = s * 0.3; g.add(l); });
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), bowM); knot.position.y = 0.81; g.add(knot);
+  g.position.set(0, 0.5, 0); g.scale.setScalar(0.92); g.rotation.set(-0.08, 0.1, 0.04);
+
+  // lupa en la mano derecha
+  const lupa = new THREE.Group();
+  const brass = new THREE.MeshPhysicalMaterial({ color: 0xc9a14a, metalness: 0.8, roughness: 0.28 });
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.03, 12, 48), brass); rim.position.y = 0.36; lupa.add(rim);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.19, 40), new THREE.MeshPhysicalMaterial({ color: 0xcfe4ff, roughness: 0.02, clearcoat: 1, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }));
+  lens.position.y = 0.36; lupa.add(lens);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.06, 12), brass); neck.position.y = 0.135; lupa.add(neck);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.26, 16), new THREE.MeshStandardMaterial({ color: 0x4a2e1c, roughness: 0.5 })); handle.position.y = -0.02; lupa.add(handle);
+  lupa.position.set(0.05, 0.1, 0.12); lupa.rotation.set(0, -0.35, -0.35);
+
+  // monóculo sobre el ojo izquierdo
+  const mono = new THREE.Group();
+  const mg = new THREE.MeshPhysicalMaterial({ color: 0xd4a53c, metalness: 0.85, roughness: 0.25 });
+  mono.add(new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.02, 10, 48), mg));
+  const ml = new THREE.Mesh(new THREE.CircleGeometry(0.185, 40), new THREE.MeshPhysicalMaterial({ color: 0xdfeeff, roughness: 0.02, clearcoat: 1, transparent: true, opacity: 0.22, depthWrite: false })); ml.position.z = 0.004; mono.add(ml);
+  mono.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([[0, -0.19, 0], [-0.04, -0.34, -0.02], [-0.12, -0.5, -0.08], [-0.24, -0.62, -0.18]].map(q => new THREE.Vector3(...q))), 32, 0.008, 6), mg));
+  kit.onSurface(mono, -0.3, 0.02, 0.035);
+
+  return blank({ group: g, props: [lupa], face: [mono], parts: { lupa },
+    update(st) {
+      const sweep = st.busy ? Math.sin(st.T * 2.4) : Math.sin(st.T * 0.8) * 0.3;
+      lupa.rotation.set(0.15 * Math.sin(st.T * 1.7), -0.35 + sweep * 0.5, -0.35 + sweep * 0.25); lupa.position.x = 0.05 + sweep * 0.06;
+    } });
+}
+
+let SHIELD = null; // piezas de los escudos de los ayudantes (compartidas)
+const _q = new THREE.Quaternion();
+function addShield(a) {
+  SHIELD = SHIELD || { disc: new THREE.CylinderGeometry(0.2, 0.2, 0.035, 36), rim: new THREE.TorusGeometry(0.2, 0.022, 8, 36),
+    boss: new THREE.SphereGeometry(0.06, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), metal: new THREE.MeshPhysicalMaterial({ color: 0xb9bec6, metalness: 0.8, roughness: 0.3 }) };
+  const g = new THREE.Group(), inner = new THREE.Group(); inner.position.z = 0.15; g.add(inner);
+  const d = new THREE.Mesh(SHIELD.disc, a.mat); d.rotation.x = Math.PI / 2; inner.add(d);
+  const r = new THREE.Mesh(SHIELD.rim, SHIELD.metal); r.position.z = 0.012; inner.add(r);
+  const b = new THREE.Mesh(SHIELD.boss, SHIELD.metal); b.rotation.x = Math.PI / 2; b.position.z = 0.018; inner.add(b);
+  a.m.add(g); a.shield = g;
+}
+
+function buildViking(kit) {
+  const { wood, steel: steel2 } = tools();
+  const g = new THREE.Group();
+  const steel = new THREE.MeshPhysicalMaterial({ color: 0x9da3ab, metalness: 0.75, roughness: 0.32 });
+  const bronze = new THREE.MeshPhysicalMaterial({ color: 0xb07a3c, metalness: 0.7, roughness: 0.35 });
+  const horn = new THREE.MeshPhysicalMaterial({ color: 0xefe3c6, roughness: 0.45, clearcoat: 0.3 });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2), steel); dome.scale.set(1.04, 0.86, 1.06); g.add(dome);
+  const band = new THREE.Mesh(new THREE.TorusGeometry(1, 0.07, 12, 72), bronze); band.rotation.x = Math.PI / 2; band.scale.set(1.05, 1.07, 1); band.position.y = 0.03; g.add(band);
+  const ridge = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 10, 48, Math.PI), bronze); ridge.scale.set(1.06, 0.87, 1); ridge.rotation.y = Math.PI / 2; g.add(ridge);
+  const rivG = new THREE.SphereGeometry(0.035, 10, 8);
+  for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2, r = new THREE.Mesh(rivG, steel); r.position.set(Math.sin(a) * 1.11, 0.03, Math.cos(a) * 1.13); g.add(r); }
+  [-1, 1].forEach(s => {
+    const curve = new THREE.CatmullRomCurve3([[0, 0, 0], [0.3, 0.1, 0.02], [0.52, 0.42, 0.06], [0.5, 0.82, 0.1]].map(([x, y, z]) => new THREE.Vector3(x * s, y, z)));
+    const TS = 40, RS = 14, geo = new THREE.TubeGeometry(curve, TS, 0.15, RS, false), p = geo.attributes.position, c = new THREE.Vector3();
+    for (let i = 0; i <= TS; i++) { curve.getPointAt(i / TS, c); const k = 1 - 0.94 * (i / TS) ** 0.9;
+      for (let j = 0; j <= RS; j++) { const n = i * (RS + 1) + j; p.setXYZ(n, c.x + (p.getX(n) - c.x) * k, c.y + (p.getY(n) - c.y) * k, c.z + (p.getZ(n) - c.z) * k); } }
+    geo.computeVertexNormals(); const h = new THREE.Mesh(geo, horn); h.position.set(s * 0.82, 0.38, 0); g.add(h);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.035, 10, 32), bronze); ring.position.set(s * 0.86, 0.39, 0); ring.rotation.y = Math.PI / 2; ring.rotation.x = s * 0.3; g.add(ring);
+  });
+  g.position.set(0, 0.46, 0); g.scale.setScalar(0.93); g.rotation.x = -0.08;
+
+  // hacha en la mano derecha
+  const axe = new THREE.Group();
+  const h = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.75, 12), wood); h.position.y = 0.2; axe.add(h);
+  const s = new THREE.Shape(); s.moveTo(0, 0.07); s.quadraticCurveTo(0.12, 0.08, 0.2, 0.2); s.quadraticCurveTo(0.27, 0, 0.2, -0.2); s.quadraticCurveTo(0.12, -0.07, 0, -0.07); s.closePath();
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.025, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 1 }); geo.translate(0.02, 0, -0.0125);
+  const blade = new THREE.Mesh(geo, steel2); blade.position.y = 0.48; axe.add(blade);
+  const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.12, 12), kit.felt(0x4a3020)); wrap.position.y = -0.05; axe.add(wrap);
+  axe.position.set(0.06, 0, 0.1); axe.rotation.set(0, -0.5, -0.25);
+
+  return blank({ group: g, props: [axe], parts: { axe },
+    update(st) {
+      axe.rotation.z = -0.25 + 0.08 * Math.sin(st.T * 1.6);
+      // los ayudantes llevan escudo, siempre de cara a la cámara
+      for (const a of st.helpers) {
+        if (!a.shield) addShield(a);
+        a.shield.visible = true;
+        a.m.getWorldQuaternion(_q).invert(); a.shield.quaternion.copy(_q).multiply(kit.camera.quaternion);
+        a.shield.children[0].rotation.z = Math.sin(st.T * 3 + a.id) * 0.25;
+      }
+    },
+    hide() { for (const a of kit.agents()) if (a.shield) a.shield.visible = false; } });
+}
+
+const _v = new THREE.Vector3();
+function buildChef() {
+  const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xfbfaf6, roughness: 0.82 });
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.68, 0.34, 64), white); band.position.y = 0.17; g.add(band);
+  const prof = []; for (let i = 0; i <= 24; i++) { const t = i / 24; prof.push(new THREE.Vector2(Math.max(0.001, 0.62 + 0.3 * Math.sin(t * Math.PI * 0.85) - (t > 0.85 ? (t - 0.85) * 5.5 : 0)), t * 0.78)); }
+  const geo = new THREE.LatheGeometry(prof, 96), p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i), y = p.getY(i), phi = Math.atan2(x, z), k = 1 + 0.06 * Math.abs(Math.sin(phi * 4)) * Math.sin(clamp(y / 0.78) * Math.PI); p.setX(i, x * k); p.setZ(i, z * k); }
+  geo.computeVertexNormals(); const puff = new THREE.Mesh(geo, white); puff.position.y = 0.32; g.add(puff);
+  g.position.set(0.02, 0.84, 0); g.rotation.set(-0.06, 0, -0.05);
+
+  // cuchara de madera en la mano derecha
+  const spoon = new THREE.Group(); const wood = new THREE.MeshStandardMaterial({ color: 0xc08a52, roughness: 0.6 });
+  const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.5, 12), wood); sh.position.y = 0.18; spoon.add(sh);
+  const bowl = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 12), wood); bowl.scale.set(1, 1.35, 0.45); bowl.position.y = 0.48; spoon.add(bowl);
+  spoon.position.set(0.04, 0.02, 0.1); spoon.rotation.z = -0.3;
+
+  // olla que sale mientras trabaja
+  const pot = new THREE.Group(); const pm = new THREE.MeshPhysicalMaterial({ color: 0x3b3d44, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide });
+  pot.add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.26, 0.3, 40, 1, true), pm));
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(0.26, 32), pm); bottom.rotation.x = Math.PI / 2; bottom.position.y = -0.15; pot.add(bottom);
+  const lip = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.025, 10, 40), pm); lip.rotation.x = Math.PI / 2; lip.position.y = 0.15; pot.add(lip);
+  [-1, 1].forEach(s => { const hd = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.018, 8, 16, Math.PI), pm); hd.position.set(s * 0.31, 0.08, 0); hd.rotation.set(0, s > 0 ? 0 : Math.PI, -Math.PI / 2); pot.add(hd); });
+  const soup = new THREE.Mesh(new THREE.CircleGeometry(0.285, 32), new THREE.MeshStandardMaterial({ color: 0xf0a040, roughness: 0.3, emissive: 0xf08030, emissiveIntensity: 0.15 })); soup.rotation.x = -Math.PI / 2; soup.position.y = 0.1; pot.add(soup);
+  const bG = new THREE.SphereGeometry(0.035, 12, 8), bubbles = [];
+  for (let i = 0; i < 7; i++) { const b = new THREE.Mesh(bG, new THREE.MeshStandardMaterial({ color: 0xfff4e0, transparent: true, opacity: 0, roughness: 0.2, depthWrite: false })); pot.add(b); bubbles.push({ m: b, ph: i / 7, last: -1, x: 0, z: 0 }); }
+  pot.position.set(1.12, -1.0, 0.45); pot.scale.setScalar(0.001);
+
+  const parts = { pot, spoon, potK: 0 };
+  return blank({ group: g, props: [spoon], extras: [pot], parts,
+    update(st) {
+      parts.potK += ((st.busy && st.awake ? 1 : 0) - parts.potK) * (1 - Math.exp(-6 * st.dt));
+      pot.visible = parts.potK > 0.01; pot.scale.setScalar(Math.max(0.001, parts.potK * st.hw));
+      if (pot.visible) {
+        for (const b of bubbles) {
+          const ph = (st.T * 0.7 + b.ph) % 1;
+          if (ph < b.last) { const a = Math.random() * 6.28, r = Math.random() * 0.18; b.x = Math.cos(a) * r; b.z = Math.sin(a) * r; }
+          b.last = ph; b.m.position.set(b.x + Math.sin(st.T * 3 + b.ph * 9) * 0.02, 0.1 + ph * 0.45, b.z);
+          b.m.scale.setScalar(0.6 + ph * 0.8); b.m.material.opacity = 0.9 * Math.min(1, ph * 6) * (1 - ph);
+        }
+        // remueve la olla con la mano derecha
+        if (!st.acting && parts.potK > 0.5) { const a = st.T * 4.5; st.hands[1].position.lerp(_v.set(1.12 + Math.cos(a) * 0.1, -0.62, 0.45 + Math.sin(a) * 0.08), parts.potK); }
+      }
+      spoon.rotation.set(parts.potK * (Math.PI - 0.15), 0, -0.3 * (1 - parts.potK));
+    },
+    hide() { parts.potK = 0; pot.visible = false; } });
+}
+
 const DEFS = [
   { key: 'none', label: 'Ninguno', emoji: '🚫', build: () => null },
   { key: 'santa', label: 'Navidad', emoji: '🎅', build: buildSanta },
@@ -382,6 +527,9 @@ const DEFS = [
   { key: 'ninja', label: 'Ninja', emoji: '🥷', build: buildNinja },
   { key: 'magic', label: 'Mago', emoji: '🎩', build: buildMagic },
   { key: 'pirate', label: 'Pirata', emoji: '🏴‍☠️', build: buildPirate },
+  { key: 'detective', label: 'Detective', emoji: '🕵️', build: buildDetective },
+  { key: 'viking', label: 'Vikingo', emoji: '🪓', build: buildViking },
+  { key: 'chef', label: 'Chef', emoji: '👨‍🍳', build: buildChef },
 ];
 
 export const ACCESSORY_LIST = DEFS.map(({ key, label, emoji }) => ({ key, label, emoji }));
