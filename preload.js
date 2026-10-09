@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder'];
+const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder', 'astro:update'];
 
 contextBridge.exposeInMainWorld('astro', {
   setIgnore: ignore => ipcRenderer.send('mouse:ignore', ignore),
@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('astro', {
   revokeTool: name => ipcRenderer.invoke('tools:revoke', name),
   checkFolders: list => ipcRenderer.invoke('folder:check', list),
   setPref: (key, value) => ipcRenderer.send('prefs:set', { key, value }),
+  installUpdate: () => ipcRenderer.send('update:install'),
   discardCapture: id => ipcRenderer.send('capture:discard', id),
   on(channel, fn) {
     if (!EVENTS.includes(channel)) return () => {};

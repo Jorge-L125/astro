@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 // display: 'auto' (aparece en la pantalla del cursor) o el id de una pantalla concreta.
-const PREF_DEFAULTS = { alwaysOnTop: true, watchCaptures: true, display: 'auto' };
+// autoUpdate: buscar versiones nuevas de Astro (solo Windows con la app instalada).
+const PREF_DEFAULTS = { alwaysOnTop: true, watchCaptures: true, display: 'auto', autoUpdate: true };
 
 function createPrefs(dir) {
   const file = path.join(dir, 'prefs.json');

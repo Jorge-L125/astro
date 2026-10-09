@@ -16,6 +16,7 @@ const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
 const { listConversations } = require('./src/history');
+const { createUpdater } = require('./src/updater');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
 // avisa a la primera, que se muestra con la pregunta abierta ('second-instance'), y termina antes
@@ -83,6 +84,7 @@ const config = loadConfig();
 const launchDir = process.argv.includes('--here') ? process.cwd() : null;
 let win = null;
 let tray = null;
+let updates = null; // actualizaciones automáticas (src/updater.js)
 const running = new Map(); // id de petición -> función para cancelarla
 const conversations = new Map(); // id de sesión de la interfaz -> proceso de Claude Code que la atiende
 const prefs = createPrefs(app.getPath('userData'));
@@ -344,6 +346,7 @@ function buildTrayMenu() {
     { type: 'separator' },
     { label: 'Abrir configuración', click: () => shell.openPath(CONFIG_FILE) },
     { label: 'Copiar comando de avisos (hooks)', click: () => clipboard.writeText(hookCommand()) },
+    ...(updates && updates.active ? [{ label: 'Buscar actualizaciones ahora', click: () => { summon(); updates.checkNow(); } }] : []),
     { type: 'separator' },
     { label: 'Salir', click: () => app.quit() },
   ]));
@@ -370,11 +373,14 @@ ipcMain.handle('config:get', () => ({
   model: config.model,
   user: os.userInfo().username,
   platform: process.platform,
+  version: app.getVersion(),
+  updates: !!(updates && updates.active),
   commands: commands.get(),
   prefs: prefs.get(),
   displays: displayList(),
 }));
 ipcMain.on('prefs:set', (_e, { key, value }) => setPref(key, value));
+ipcMain.on('update:install', () => updates && updates.install());
 ipcMain.on('capture:discard', (_e, id) => captures.discard(id));
 
 ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, cwd: dir }) => {
@@ -458,6 +464,16 @@ app.whenReady().then(() => {
     token,
     onListening: port => writeRuntimeInfo({ port, token, pid: process.pid }),
   });
+  // electron-updater solo se carga donde puede actualizar: Windows con la app instalada.
+  const canUpdate = app.isPackaged && process.platform === 'win32';
+  updates = createUpdater({
+    updater: canUpdate ? require('electron-updater').autoUpdater : null,
+    isPackaged: app.isPackaged,
+    enabled: () => prefs.get().autoUpdate,
+    send,
+    log: m => console.log(m),
+  });
+  updates.start();
   applyPrefs();
   const shotsDir = process.env.ASTRO_SCREENSHOTS_DIR
     ? Promise.resolve(process.env.ASTRO_SCREENSHOTS_DIR)
