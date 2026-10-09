@@ -1,5 +1,6 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const { planFileOf } = require('./plans');
 
 // Resumen corto de lo que hace una herramienta, para mostrarlo en la nube de "pensando".
 function describeTool(name, input = {}) {
@@ -94,7 +95,7 @@ function contextUsage(ev) {
  * turnos: solo se paga el arranque del CLI una vez. Si el proceso muere (cancelación, inactividad,
  * fallo), el siguiente turno lo relanza con `--resume` y la conversación sigue donde estaba.
  *
- * send(text, onEvent) devuelve { done: Promise<{text, structured, sessionId, denials}>, cancel() }.
+ * send(text, onEvent) devuelve { done: Promise<{text, structured, sessionId, denials, planFile, plan}>, cancel() }.
  */
 function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = null, ...argOpts }) {
   let proc = null; // { child, stderr, resumed, gotResult }
@@ -133,6 +134,8 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       structured: ev.structured_output || null,
       sessionId,
       denials: t.denials,
+      planFile: t.planFile,
+      plan: t.plan,
       context: contextUsage(ev),
     });
   }
@@ -172,6 +175,9 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
         }
         if (part.type === 'text' && part.text) t.onEvent({ type: 'text', text: part.text });
         if (part.type === 'tool_use' && part.name !== 'StructuredOutput') {
+          // El plan: lo escribe en ~/.claude/plans o lo presenta entero con ExitPlanMode.
+          t.planFile = planFileOf(part.name, part.input) || t.planFile;
+          if (part.name === 'ExitPlanMode' && part.input && typeof part.input.plan === 'string') t.plan = part.input.plan;
           if (AGENT_TOOLS.has(part.name)) {
             const i = part.input || {};
             t.agents.add(part.id);
@@ -285,7 +291,7 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       let t;
       const done = new Promise((resolve, reject) => {
         // running/tracked: tareas en segundo plano; continuations: respuestas que Claude aún debe dar.
-        t = { resolve, reject, onEvent, inits: 0, running: new Set(), tracked: new Set(), continuations: 0, agents: new Set(), ended: new Set(), denials: [], last: null, wait: null };
+        t = { resolve, reject, onEvent, inits: 0, running: new Set(), tracked: new Set(), continuations: 0, agents: new Set(), ended: new Set(), denials: [], planFile: null, plan: null, last: null, wait: null };
       });
       const switchTo = typeof text === 'string' && /^\/model\s+(\S+)/.exec(text.trim());
       if (switchTo) t.model = switchTo[1];

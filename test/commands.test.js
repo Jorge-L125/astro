@@ -14,8 +14,8 @@ const ANNOUNCED = {
 
 test('muestra los útiles, ordenados por tipo, y oculta los de pago, recurrentes o de terminal', () => {
   const list = buildCommandList(ANNOUNCED);
-  assert.deepEqual(list.map(c => c.name), ['clear', 'resume', 'context', 'model', 'anthropic-skills:pdf', 'code-review', 'mi-skill']);
-  assert.deepEqual(list.map(c => c.kind), ['local', 'local', 'info', 'task', 'skill', 'skill', 'skill']);
+  assert.deepEqual(list.map(c => c.name), ['clear', 'historial', 'resume', 'context', 'model', 'anthropic-skills:pdf', 'code-review', 'mi-skill']);
+  assert.deepEqual(list.map(c => c.kind), ['local', 'local', 'local', 'info', 'task', 'skill', 'skill', 'skill']);
 });
 
 test('describe en español los conocidos y marca los argumentos', () => {
@@ -41,9 +41,9 @@ test('el almacén arranca con los de serie y recuerda la última lista entre arr
   assert.deepEqual(createCommandStore(dir).get().map(c => c.name), buildCommandList(ANNOUNCED).map(c => c.name));
 });
 
-test('los de Astro (/clear y /resume) están aunque Claude no los anuncie', () => {
+test('los de Astro (/clear, /historial y /resume) están aunque Claude no los anuncie', () => {
   const list = buildCommandList({ slashCommands: ['context'] });
-  assert.deepEqual(list.filter(c => c.kind === 'local').map(c => c.name), ['clear', 'resume']);
+  assert.deepEqual(list.filter(c => c.kind === 'local').map(c => c.name), ['clear', 'historial', 'resume']);
 });
 
 test('usa la descripción real de skills y comandos propios', () => {

@@ -173,6 +173,7 @@ $('bAsk').onclick = () => (askEl ? closeAsk() : openAsk());
 $('bNew').onclick = () => newSession();
 $('bReset').onclick = () => confirmReset(active);
 $('bResume').onclick = () => openResume();
+$('bHistory').onclick = () => openHistory();
 $('bMin').onclick = () => gota.minimize();
 $('bQuit').onclick = () => api.quit();
 // Preferencias que guarda el proceso principal (también se cambian desde la bandeja).
@@ -295,7 +296,7 @@ function openAsk() {
   const menu = commandMenu(ta);
   askEl.prepend(menu.el);
   askEl.prepend(folderButton(active));
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); });
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); stickToBottom(active); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
@@ -305,7 +306,7 @@ function openAsk() {
     const v = ta.value.trim();
     if (!v) return;
     const cmd = parseSlash(v);
-    if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear')) { runLocal(cmd.name); return; }
+    if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear' || cmd.name === 'historial')) { runLocal(cmd.name); return; }
     if (isCompliment(v)) gota.compliment();
     const cap = attached;
     attached = null; // pasa a la pregunta: ya no se descarta al cerrar
@@ -386,6 +387,7 @@ function closeAsk() { if (askEl) askEl.remove(); askEl = null; detachCapture(); 
 function runLocal(name) {
   closeAsk();
   if (name === 'resume') openResume();
+  else if (name === 'historial') openHistory();
   else if (name === 'clear') confirmReset(active);
 }
 
@@ -518,6 +520,15 @@ function showStepsButton(s) {
   b.className = 'stepsbtn hit';
   b.textContent = `🧭 Ver los ${s.steps.length === 1 ? 'pasos (1)' : s.steps.length + ' pasos'}`;
   b.onclick = () => openSteps(s);
+  s.clouds.append(b);
+  stickToBottom(s);
+}
+// El plan que Claude escribió (modo plan): entero en el panel, para decidir con él delante.
+function showPlanButton(s, plan) {
+  const b = document.createElement('button');
+  b.className = 'stepsbtn hit';
+  b.textContent = '📋 Ver el plan';
+  b.onclick = () => openSheets(buildSheets({ detail: plan }), 'El plan');
   s.clouds.append(b);
   stickToBottom(s);
 }
@@ -923,7 +934,7 @@ async function ask(s, text, capture = null) {
   s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
   s.steps = []; s.stepsT0 = Date.now();
-  let t = thinkingCloud(s), data, denials = [];
+  let t = thinkingCloud(s), data, denials = [], plan = null;
   stepsLink(s, t);
   try {
     let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
@@ -932,6 +943,7 @@ async function ask(s, text, capture = null) {
     // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
     data = cmd ? softData(r) || commandReply(cmd.name, r.text) : validData(r);
     denials = r.denials || [];
+    plan = r.plan || null;
     s.history.push({ role: 'bot', data });
     if (Array.isArray(data.delegate) && data.delegate.length) {
       t.remove();
@@ -965,6 +977,7 @@ async function ask(s, text, capture = null) {
       data = validData(r);
       data.delegate = null;
       denials = denials.concat(r.denials || []);
+      plan = r.plan || plan;
       s.history.push({ role: 'bot', data });
     }
   } catch (e) {
@@ -984,6 +997,7 @@ async function ask(s, text, capture = null) {
   if (denials.length) askPermission(s, denials);
   const sheets = buildSheets(data);
   if (sheets.length) showSheetsButton(s, sheets, data.title);
+  if (plan) showPlanButton(s, plan);
   if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);
   setBusy(s, false);
   if (s.steps.length) showStepsButton(s);
@@ -1101,6 +1115,62 @@ const relTime = (() => {
   };
 })();
 const shortName = text => { const n = String(text).replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '); return n.length > 22 ? n.slice(0, 21) + '…' : n; };
+
+// Todo lo que se ha hablado en esta sesión, de lo más antiguo a lo más nuevo. Sale de la conversación
+// guardada por Claude Code (completa, también tras retomarla); sin ella, de lo que Astro lleva en memoria.
+async function openHistory() {
+  if (gota.isMinimized()) { restoreThen(openHistory); return; }
+  closeAsk(); toggleSettings(false);
+  panelAgent = null;
+  const s = active;
+  openShell('Historial', 'Leyendo…', blobIco(s.color));
+  const pb = $('pbody');
+  pb.innerHTML = '<p class="muted">Leyendo la conversación…</p>';
+  let items = [];
+  if (s.claudeId) { try { items = (await api.conversation(s.folder, s.claudeId)).items || []; } catch { items = []; } }
+  if (!items.length) items = s.history.map(h => (h.role === 'user' ? { role: 'user', text: h.text } : { role: 'bot', data: h.data, text: '' }));
+  if (!body.classList.contains('panel-open') || $('ptitle').textContent !== 'Historial') return;
+  const asked = items.filter(m => m.role === 'user').length;
+  $('psub').textContent = `${s.name} · ${asked === 1 ? '1 pregunta' : asked + ' preguntas'}`;
+  pb.innerHTML = '';
+  if (!items.length) { pb.innerHTML = '<p class="muted">Aún no has hablado con Astro en esta sesión.</p>'; return; }
+  const search = document.createElement('input');
+  search.type = 'search'; search.className = 'search'; search.placeholder = 'Buscar en la conversación…';
+  search.setAttribute('aria-label', 'Buscar en la conversación');
+  const list = document.createElement('div');
+  list.className = 'hist';
+  pb.append(search, list);
+  const textOf = m => (m.role === 'user' ? m.text : [m.data && m.data.title, ...((m.data && m.data.lines) || []), m.data && m.data.detail, m.text].filter(Boolean).join(' '));
+  const paint = () => {
+    const q = search.value.trim().toLowerCase();
+    list.innerHTML = '';
+    for (const m of items) {
+      if (q && !textOf(m).toLowerCase().includes(q)) continue;
+      const el = document.createElement('article');
+      const when = m.at ? relTime(m.at) : '';
+      if (m.role === 'user') {
+        el.className = 'hmsg you';
+        el.innerHTML = '<small></small><p></p>';
+        el.querySelector('p').textContent = m.text;
+      } else {
+        el.className = 'hmsg bot sheet';
+        const d = m.data;
+        el.innerHTML = '<small></small>' + (d ? '<h4></h4><div class="lines"></div><div class="detail"></div>' : '<div class="detail"></div>');
+        if (d) {
+          el.querySelector('h4').textContent = d.title || 'Astro';
+          el.querySelector('.lines').innerHTML = (d.lines || []).map(l => '<p>' + inline(l) + '</p>').join('');
+          el.querySelector('.detail').innerHTML = md(d.detail || '');
+        } else el.querySelector('.detail').innerHTML = md(m.text);
+      }
+      el.querySelector('small').textContent = (m.role === 'user' ? 'Tú' : 'Astro') + (when ? ' · ' + when : '');
+      list.append(el);
+    }
+    if (!list.childElementCount) list.innerHTML = '<p class="muted">Nada coincide con esa búsqueda.</p>';
+    else if (!q) pb.scrollTop = pb.scrollHeight;
+  };
+  search.addEventListener('input', paint);
+  paint();
+}
 
 async function openResume() {
   if (gota.isMinimized()) { restoreThen(openResume); return; }
@@ -1485,8 +1555,12 @@ if (new URLSearchParams(location.search).has('debug')) {
     closeSession: i => closeSession(sessions[i]),
     say: text => { const c = cloud(active); c.textContent = text; },
     setCommands: list => { commands = list; },
-    fakeHistory: () => { active.history.push({ role: 'user', text: 'prueba' }); },
+    fakeHistory: () => {
+      active.history.push({ role: 'user', text: 'prueba' });
+      active.history.push({ role: 'bot', data: { mood: 'happy', title: 'Respuesta de prueba', lines: ['Aquí va **lo importante**.'], detail: '## Pasos\n\n1. Uno\n2. Dos con `código`' } });
+    },
     openAsk,
+    showPlan: text => showPlanButton(active, text),
     openResume,
     openFolder,
     // Simula n subagentes de Claude (lanzar, trabajar y terminar) para ver las órbitas y los pasos.

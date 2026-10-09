@@ -29,6 +29,8 @@ function reply(content) {
   });
   if (content === 'slow') return;
   if (content === 'agents') return agents();
+  if (content === 'plan') return plan();
+  if (content === 'exitplan') return exitPlan();
   if (content === 'crash') { process.stderr.write('boom'); process.exit(3); }
   out({ type: 'assistant', message: { content: [
     { type: 'tool_use', name: 'Read', input: { file_path: '/proyecto/src/main.js' } },
@@ -47,6 +49,16 @@ function reply(content) {
   const cut = bytes.indexOf(Buffer.from('ñ', 'utf8')) + 1; // entre los dos bytes de la ñ
   process.stdout.write(bytes.subarray(0, cut));
   setTimeout(() => process.stdout.write(bytes.subarray(cut)), 30);
+}
+
+// En modo plan Claude escribe el plan en ~/.claude/plans y deja solo un resumen en la respuesta.
+function plan() {
+  out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/home/a/.claude/plans/mi-plan.md', content: '# Plan' } }] } });
+  out({ type: 'result', session_id: sessionId, result: 'ok', structured_output: { lines: ['Plan listo.'] } });
+}
+function exitPlan() {
+  out({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'ExitPlanMode', input: { plan: '# Plan\n\n1. Uno' } }] } });
+  out({ type: 'result', session_id: sessionId, result: 'ok', structured_output: { lines: ['Plan listo.'] } });
 }
 
 // Secuencia real de Claude Code 2.1 con un subagente en segundo plano.

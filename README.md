@@ -38,6 +38,8 @@ Escribe `/` en la pregunta para ver los comandos de Claude Code: los de serie (`
 
 - **`/clear`** lo hace Astro (también el botón ↻): pide confirmación antes de empezar de cero. La conversación no se borra: queda guardada y se puede retomar con `/resume`.
 - **`/resume`** lo hace Astro (también el botón del reloj o «Retomar una conversación…» en la bandeja): lista las conversaciones guardadas de la carpeta de trabajo, de Astro y de la terminal, y retoma la que elijas en la sesión activa, mostrando tu última pregunta y la última respuesta.
+- **`/historial`** lo hace Astro (también el botón de las líneas): abre en el panel lateral todo lo que has hablado en esta sesión, con tus preguntas y las respuestas completas, y una caja para buscar. Lo lee de la conversación que guarda Claude Code, así que también está completo tras retomarla.
+- **Ver el plan.** Si Claude hace un plan, aparece el botón «Ver el plan» y se abre entero en el panel.
 - **Informes** como `/context` o `/usage`: resumen en la nube y el informe completo en las hojas.
 - **`/model sonnet|opus|haiku`** cambia el modelo solo para esa sesión.
 - **Skills y comandos de plugins** responden como una pregunta normal.
