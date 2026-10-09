@@ -1,8 +1,9 @@
 import { createGota } from './gota.js';
-import { esc, inline, md, buildSheets } from './markdown.js';
+import { esc, inline, md, buildSheets, previewText } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 import { groupDenials } from './tools.js';
+import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -153,7 +154,32 @@ $('bQuit').onclick = () => api.quit();
 function showPrefs(p) {
   document.querySelectorAll('.toggle[data-pref]').forEach(t => t.setAttribute('aria-checked', String(!!p[t.dataset.pref])));
   if (!p.watchCaptures) dropOffer();
+  displayPref = p.display || 'auto';
+  showDisplays();
 }
+
+/* ---------- pantalla ---------- */
+// "Auto" sigue al cursor; un número fija Astro en esa pantalla (numeradas de izquierda a derecha).
+let displays = [], displayPref = 'auto';
+function showDisplays() {
+  const seg = $('seg-display');
+  $('grp-display').hidden = displays.length < 2;
+  seg.innerHTML = '';
+  const opts = [{ id: 'auto', text: 'Auto', title: 'Aparece en la pantalla donde esté el cursor' },
+    ...displays.map(d => ({ id: d.id, text: String(d.n) + (d.primary ? ' ★' : ''), title: `${d.name} · ${d.size}${d.primary ? ' · principal' : ''}` }))];
+  for (const o of opts) {
+    const b = document.createElement('button');
+    b.dataset.v = o.id; b.textContent = o.text; b.title = o.title;
+    b.setAttribute('aria-pressed', String(o.id === displayPref));
+    b.onclick = () => api.setPref('display', o.id);
+    seg.append(b);
+  }
+  const chosen = displays.find(d => d.id === displayPref);
+  $('display-hint').textContent = displayPref === 'auto' ? 'Aparece donde esté el cursor'
+    : chosen ? `Siempre en ${chosen.name} (${chosen.size})`
+    : 'La pantalla elegida no está conectada: mientras tanto sigue al cursor';
+}
+api.on('astro:displays', list => { displays = Array.isArray(list) ? list : []; showDisplays(); });
 document.querySelectorAll('.toggle[data-pref]').forEach(t => {
   t.onclick = () => {
     const on = t.getAttribute('aria-checked') !== 'true';
@@ -765,9 +791,88 @@ function maybeRename(s, text) {
 // Datos de Astro si la respuesta trae el formato esperado; null si no (p. ej. la salida de un comando).
 function softData(r) { try { return validData(r); } catch { return null; } }
 
+/* ---------- uso del contexto ---------- */
+// Cuánto lleva la conversación de cada sesión frente al límite del modelo. El anillo junto a Astro solo
+// aparece desde el 75% (como en Claude Code); en Ajustes se ve siempre.
+function trackContext(s, r, cmd = null) {
+  if (cmd && cmd.name === 'compact') s.ctx = null; // tras compactar, el tamaño real llega en el siguiente turno
+  else if (r && r.context) s.ctx = { ...r.context, last: s.ctx ? r.context.used - s.ctx.used : 0 };
+  if (s === active) renderContext();
+}
+function contextCard(info) {
+  const wrap = document.createElement('div');
+  if (!info) {
+    wrap.className = 'ctxcard empty';
+    wrap.textContent = 'Aún sin datos: aparecen tras la primera respuesta de esta sesión.';
+    return wrap;
+  }
+  wrap.className = 'ctxcard ' + info.level;
+  wrap.innerHTML = '<p class="t"><i></i><span></span></p><p class="n"><b></b> <small></small></p><div class="bar"><i></i></div><p class="left"></p><button class="btn compact">Compactar sesión</button>';
+  wrap.querySelector('.t span').textContent = info.title;
+  wrap.querySelector('.n b').textContent = info.used;
+  wrap.querySelector('.n small').textContent = '/ ' + info.window + ' · ' + info.pct + '%';
+  wrap.querySelector('.bar i').style.width = info.pct + '%';
+  wrap.querySelector('.left').textContent = 'Quedan ' + info.left + (info.last ? ' · último ' + info.last : '');
+  const b = wrap.querySelector('.compact');
+  b.disabled = active.busy;
+  b.title = 'Resume la conversación para liberar contexto (/compact)';
+  b.onclick = () => { $('ctxpop').hidden = true; toggleSettings(false); if (!active.busy) ask(active, '/compact'); };
+  return wrap;
+}
+// Mientras Astro explica el uso, el anillo se ve aunque esté por debajo del 75%.
+let explaining = null;
+async function explainContext(s, text) {
+  if (s !== active) return;
+  closeAsk(); closePanel();
+  clearClouds(s);
+  const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = text; s.clouds.append(you);
+  const info = contextInfo(s.ctx);
+  clearTimeout(explaining);
+  explaining = setTimeout(() => { explaining = null; renderContext(); }, 9000);
+  renderContext();
+  $('ctxpop').hidden = false;
+  $('ctxpop').replaceChildren(contextCard(info));
+  // "Presenta" el anillo: saluda con la mano hacia él y lo mira mientras habla.
+  gota.wake();
+  gota.act('wave');
+  gota.react(info && info.level !== 'ok' ? 'thinking' : 'happy', 1600);
+  for (const line of contextSpeech(info)) { const c = cloud(s); await typeInto(s, c, line); await wait(250); }
+  setMood(s, 'neutral');
+  gota.act('nod');
+}
+
+function renderContext() {
+  const info = contextInfo(active.ctx);
+  const ring = $('ctxring');
+  ring.hidden = !(info && (info.show || explaining));
+  if (info) {
+    ring.className = 'ctxring hit ' + info.level;
+    ring.querySelector('.val').style.strokeDasharray = info.pct + ' 100';
+    ring.querySelector('b').textContent = info.pct + '%';
+    ring.title = `Contexto: ${info.used} de ${info.window} (${info.pct}%)`;
+  }
+  if (ring.hidden) $('ctxpop').hidden = true;
+  if (!$('ctxpop').hidden) $('ctxpop').replaceChildren(contextCard(info));
+  $('ctx-settings').replaceChildren(contextCard(info));
+}
+$('ctxring').onclick = () => {
+  const pop = $('ctxpop');
+  pop.hidden = !pop.hidden;
+  if (!pop.hidden) pop.replaceChildren(contextCard(contextInfo(active.ctx)));
+};
+renderContext();
+addEventListener('pointerdown', e => {
+  if (!$('ctxpop').hidden && !$('ctxpop').contains(e.target) && !$('ctxring').contains(e.target)) $('ctxpop').hidden = true;
+});
+
 async function ask(s, text, capture = null) {
   if (s.busy) return;
-  const cmd = capture ? null : parseSlash(text);
+  let cmd = capture ? null : parseSlash(text);
+  // "¿Cuántos tokens quedan?": lo responde Astro con los datos que ya tiene, sin llamar a Claude.
+  // Si es sobre el límite del plan, eso lo sabe /usage.
+  const uq = !capture && !cmd ? usageQuestion(text) : null;
+  if (uq === 'context') { explainContext(s, text); return; }
+  if (uq === 'plan') cmd = parseSlash('/usage');
   // /clear lo hace Astro: pide confirmación y reinicia la sesión, sin llamar a Claude.
   if (cmd && cmd.name === 'clear') { if (s === active) closeAsk(); confirmReset(s); return; }
   setBusy(s, true);
@@ -786,6 +891,7 @@ async function ask(s, text, capture = null) {
   try {
     let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
     s.claudeId = r.sessionId || s.claudeId;
+    trackContext(s, r, cmd);
     // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
     data = cmd ? softData(r) || commandReply(cmd.name, r.text) : validData(r);
     denials = r.denials || [];
@@ -818,6 +924,7 @@ async function ask(s, text, capture = null) {
       const results = helpers.map(a => `### ${a.name} (${a.status === 'done' ? 'terminado' : 'incompleto'})\nTarea: ${a.task}\n${a.output}`).join('\n\n');
       r = await call(s, 'ask', { conv: s.id, results, resume: s.claudeId }, progressInto(t, s));
       s.claudeId = r.sessionId || s.claudeId;
+      trackContext(s, r);
       data = validData(r);
       data.delegate = null;
       denials = denials.concat(r.denials || []);
@@ -937,6 +1044,8 @@ function askConfirm(s, title, text, yesLabel, onYes) {
 function resetConversation(s) {
   if (s.busy) return;
   s.claudeId = null; s.history.length = 0;
+  s.ctx = null;
+  if (s === active) renderContext();
   api.endConversation(s.id);
   if (s === active) closePanel();
   clearClouds(s); clearAgents(s);
@@ -1009,6 +1118,8 @@ async function resumeInto(s, c) {
   closePanel();
   api.resumeConversation(s.id, c.id, s.folder);
   s.claudeId = c.id;
+  s.ctx = null; // el tamaño de la conversación retomada llega con su primera respuesta
+  if (s === active) renderContext();
   const data = c.data || (c.lastText ? plainReply(c.lastText) : null);
   s.history = [];
   if (c.last) s.history.push({ role: 'user', text: c.last });
@@ -1050,6 +1161,8 @@ function applyFolder(s, dir) {
   rememberFolder(dir);
   const had = s.history.length || s.claudeId;
   s.claudeId = null; s.history.length = 0;
+  s.ctx = null;
+  if (s === active) renderContext();
   api.endConversation(s.id);
   if (s === active) { closeAsk(); closePanel(); }
   clearClouds(s); clearAgents(s);
@@ -1165,6 +1278,7 @@ function onSwitched(id) {
   if (!s) return;
   active.clouds.remove();
   active = s;
+  renderContext();
   $('cloudslot').append(s.clouds);
   // la captura ofrecida sigue a la sesión que está al frente
   if (offer) { offer.s = s; offer.use.disabled = s.busy; s.clouds.append(offer.el); }
@@ -1225,8 +1339,22 @@ api.on('astro:notify', n => {
       title.textContent = '¡Terminó la tarea' + (n.project ? ' en ' + n.project : '') + '!';
       gota.react('joy', 2000); gota.act(pick(['jump', 'spin', 'dance']));
     }
-    msg.textContent = n.message || '';
+    // La nube lleva un resumen; el mensaje completo, con su markdown, se abre en el panel lateral.
+    const full = String(n.message || '').trim();
+    msg.textContent = previewText(full);
     c.append(title, msg);
+    if (full) {
+      const more = document.createElement('small');
+      more.className = 'more';
+      more.textContent = 'Ver mensaje completo →';
+      c.append(more);
+      c.classList.add('openable');
+      c.setAttribute('role', 'button');
+      c.tabIndex = 0;
+      const open = () => openSheets(buildSheets({ detail: full }), title.textContent);
+      c.onclick = () => { if (!getSelection().toString()) open(); }; // seleccionar texto no la abre
+      c.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } };
+    }
     gota.talk(40);
   };
   if (gota.isMinimized()) restoreThen(show); else show();
@@ -1263,6 +1391,7 @@ api.config().then(async c => {
   markReady();
   rememberFolder(active.folder);
   if (Array.isArray(c.commands)) commands = c.commands;
+  if (Array.isArray(c.displays)) { displays = c.displays; showDisplays(); }
   $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b></b> nueva · <b></b> cambiar`;
   const bs = $('info').querySelectorAll('b');
   const shortcut = formatAccel(c.shortcut);
@@ -1284,6 +1413,8 @@ api.config().then(async c => {
 if (new URLSearchParams(location.search).has('debug')) {
   window.astroDebug = {
     sessions: () => sessions.map(s => ({ id: s.id, name: s.name, busy: s.busy, active: s === active })),
+    // Simula el uso de contexto de la sesión activa (p. ej. context(160000, 200000) para ver el anillo).
+    context: (used, window) => trackContext(active, { context: { used, window } }),
     newSession,
     switchTo: i => switchTo(sessions[i]),
     closeSession: i => closeSession(sessions[i]),

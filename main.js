@@ -11,6 +11,7 @@ const { writeRuntimeInfo, removeRuntimeInfo } = require('./src/runtime-info');
 const { makeIconPng } = require('./src/icon');
 const { createCaptureStore } = require('./src/captures');
 const { createPrefs } = require('./src/prefs');
+const { describeDisplays, pinnedDisplay } = require('./src/displays');
 const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
@@ -116,6 +117,8 @@ function applyPrefs() {
     if (!p.alwaysOnTop) win.moveTop();
   }
   if (p.watchCaptures) captures.start(); else captures.stop();
+  const pinned = pinnedHere();
+  if (pinned) fitToScreen(pinned);
   if (tray) buildTrayMenu();
   send('astro:prefs', p);
 }
@@ -248,22 +251,32 @@ function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-// La ventana cubre el área de trabajo de una pantalla; al llamar a Astro se muda a la del cursor.
+// La ventana cubre el área de trabajo de una pantalla. En modo automático, al llamar a Astro se muda a
+// la del cursor; con una pantalla elegida en Ajustes se queda siempre en esa (si está conectada).
 let displayId = null;
+const pinnedHere = () => pinnedDisplay(screen.getAllDisplays(), prefs.get().display);
 function fitToScreen(display) {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   const d = display
+    || pinnedHere()
     || screen.getAllDisplays().find(x => x.id === displayId)
     || screen.getPrimaryDisplay();
   displayId = d.id;
   win.setBounds(d.workArea);
 }
+const displayList = () => describeDisplays(screen.getAllDisplays(), screen.getPrimaryDisplay().id);
+// Al conectar o desconectar una pantalla: recolocar, y avisar a Ajustes y a la bandeja de la lista nueva.
+function onDisplaysChanged() {
+  fitToScreen();
+  if (tray) buildTrayMenu();
+  send('astro:displays', displayList());
+}
 
 function createWindow() {
-  const primary = screen.getPrimaryDisplay();
-  displayId = primary.id;
+  const start = pinnedHere() || screen.getPrimaryDisplay();
+  displayId = start.id;
   win = new BrowserWindow({
-    ...primary.workArea,
+    ...start.workArea,
     transparent: true,
     frame: false,
     resizable: false,
@@ -292,13 +305,13 @@ function createWindow() {
     win.webContents.on('console-message', e => console.log(`[renderer:${e.level}] ${e.message} (${e.sourceId}:${e.lineNumber})`));
   }
   screen.on('display-metrics-changed', () => fitToScreen());
-  screen.on('display-added', () => fitToScreen());
-  screen.on('display-removed', () => fitToScreen());
+  screen.on('display-added', onDisplaysChanged);
+  screen.on('display-removed', onDisplaysChanged);
 }
 
 function summon() {
   if (!win) return;
-  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const d = pinnedHere() || screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   if (d.id !== displayId) fitToScreen(d);
   win.showInactive();
   win.moveTop();
@@ -319,6 +332,15 @@ function buildTrayMenu() {
     { type: 'separator' },
     { label: 'Siempre encima', type: 'checkbox', checked: p.alwaysOnTop, click: i => setPref('alwaysOnTop', i.checked) },
     { label: 'Detectar capturas de pantalla', type: 'checkbox', checked: p.watchCaptures, click: i => setPref('watchCaptures', i.checked) },
+    { label: 'Pantalla', submenu: [
+      { label: 'Automática (donde esté el cursor)', type: 'radio', checked: !pinnedHere(), click: () => setPref('display', 'auto') },
+      ...displayList().map(d => ({
+        label: `${d.n}: ${d.name} (${d.size})${d.primary ? ' · principal' : ''}`,
+        type: 'radio',
+        checked: p.display === d.id,
+        click: () => setPref('display', d.id),
+      })),
+    ] },
     { type: 'separator' },
     { label: 'Abrir configuración', click: () => shell.openPath(CONFIG_FILE) },
     { label: 'Copiar comando de avisos (hooks)', click: () => clipboard.writeText(hookCommand()) },
@@ -350,6 +372,7 @@ ipcMain.handle('config:get', () => ({
   platform: process.platform,
   commands: commands.get(),
   prefs: prefs.get(),
+  displays: displayList(),
 }));
 ipcMain.on('prefs:set', (_e, { key, value }) => setPref(key, value));
 ipcMain.on('capture:discard', (_e, id) => captures.discard(id));
@@ -376,7 +399,7 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, 
     if (n && !results && isDefault(cwd)) prewarm(agentPool, Math.min(3, n));
     return r;
   });
-  return toReply(done, r => ({ data: r.structured, text: r.text, sessionId: r.sessionId, denials: r.denials }));
+  return toReply(done, r => ({ data: r.structured, text: r.text, sessionId: r.sessionId, denials: r.denials, context: r.context }));
 });
 
 ipcMain.handle('claude:agent', (_e, { id, name, task, transcript, cwd: dir }) => {

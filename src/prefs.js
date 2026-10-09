@@ -2,7 +2,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const PREF_DEFAULTS = { alwaysOnTop: true, watchCaptures: true };
+// display: 'auto' (aparece en la pantalla del cursor) o el id de una pantalla concreta.
+const PREF_DEFAULTS = { alwaysOnTop: true, watchCaptures: true, display: 'auto' };
 
 function createPrefs(dir) {
   const file = path.join(dir, 'prefs.json');

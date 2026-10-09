@@ -22,6 +22,8 @@
       <button id="bReset" title="Reiniciar esta conversación"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/></svg></button>
       <button id="bMin" title="Minimizar a gota"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c3 4 5.5 7 5.5 10a5.5 5.5 0 0 1-11 0c0-3 2.5-6 5.5-10z"/></svg></button>
     </nav>
+    <button class="ctxring hit" id="ctxring" hidden aria-haspopup="dialog" aria-controls="ctxpop"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="trk" cx="18" cy="18" r="15"/><circle class="val" cx="18" cy="18" r="15" pathLength="100"/></svg><b></b></button>
+    <div class="ctxpop hit" id="ctxpop" hidden role="dialog" aria-label="Uso del contexto"></div>
   </div>
 </div>
 
@@ -30,8 +32,10 @@
   <div class="grp"><p class="lbl2">Color de esta sesión</p><div class="swatches" id="swatches"></div></div>
   <div class="grp"><p class="lbl2">Accesorio</p><div class="accs" id="accs"></div></div>
   <div class="grp"><p class="lbl2">Cajas</p><div class="seg" id="seg-glass"><button data-v="glass">Glass</button><button data-v="tint">Glass de color</button><button data-v="solid">Sólido</button></div></div>
+  <div class="grp" id="grp-display" hidden><p class="lbl2">Pantalla</p><div class="seg" id="seg-display"></div><small class="hint" id="display-hint"></small></div>
   <div class="grp"><p class="lbl2">Posición en pantalla</p><div class="seg" id="seg-side"><button data-v="left">Izquierda</button><button data-v="right">Derecha</button></div></div>
   <div class="grp"><p class="lbl2">Tema</p><div class="seg" id="seg-theme"><button data-v="auto">Auto</button><button data-v="light">Claro</button><button data-v="dark">Oscuro</button></div></div>
+  <div class="grp"><p class="lbl2">Contexto de esta sesión</p><div id="ctx-settings"></div></div>
   <div class="grp"><p class="lbl2">Comportamiento</p>
     <button class="toggle" id="tOnTop" role="switch" aria-checked="true" data-pref="alwaysOnTop"><span>Siempre encima de las ventanas<small>Si lo apagas, Astro vuelve al frente al llamarlo</small></span><i></i></button>
     <button class="toggle" id="tCaptures" role="switch" aria-checked="true" data-pref="watchCaptures"><span>Detectar capturas de pantalla<small>Solo se envían si preguntas sobre ellas</small></span><i></i></button>

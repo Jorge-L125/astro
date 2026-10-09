@@ -45,11 +45,48 @@ export function md(src) {
 }
 
 // Reparte "detail" en hojas de ~750 caracteres sin partir párrafos; el código va en su propia hoja.
+// Bloques separados por líneas en blanco, sin partir nunca un bloque de código (```), que puede
+// llevar líneas en blanco dentro.
+export function mdChunks(text) {
+  const chunks = [];
+  let cur = [], fence = false;
+  for (const line of String(text || '').split('\n')) {
+    if (/^\s*```/.test(line)) fence = !fence;
+    if (!fence && !line.trim()) { if (cur.length) chunks.push(cur.join('\n')); cur = []; continue; }
+    cur.push(line);
+  }
+  if (cur.length) chunks.push(cur.join('\n'));
+  return chunks.map(c => c.trim()).filter(Boolean);
+}
+
+// Texto corrido y sin símbolos de markdown, para el resumen de una nube. En las tablas, las celdas de
+// una fila van separadas por «·» y las filas por «/».
+export function previewText(text) {
+  const lines = String(text || '').replace(/```[\s\S]*?(```|$)/g, '\n[código]\n').split('\n');
+  let out = '', prevRow = false;
+  for (const raw of lines) {
+    if (/^\s*\|?[\s:|-]+\|?\s*$/.test(raw) && raw.includes('-') && raw.includes('|')) continue; // |---|---|
+    const row = isRow(raw);
+    const l = row
+      ? raw.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()).filter(Boolean).join(' · ')
+      : raw.replace(/^\s*(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/, '').trim();
+    if (!l) { prevRow = false; continue; }
+    out += (out ? (row && prevRow ? ' / ' : ' ') : '') + l;
+    prevRow = row;
+  }
+  return out
+    .replace(/\*\*([^*]+)\*\*|__([^_]+)__/g, '$1$2')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function buildSheets(data, maxLen = 750) {
   const sheets = [];
-  const text = data.detail ? String(data.detail).split(/\n{2,}/) : [];
+  const text = data.detail ? mdChunks(data.detail) : [];
   let cur = [], len = 0;
-  for (const p of text.map(s => s.trim()).filter(Boolean)) {
+  for (const p of text) {
     if (len && len + p.length > maxLen) { sheets.push({ kind: 'text', text: cur.join('\n\n') }); cur = []; len = 0; }
     cur.push(p); len += p.length;
   }

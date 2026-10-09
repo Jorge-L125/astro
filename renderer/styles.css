@@ -66,6 +66,9 @@ body.left-side .cloud.tail::after{right:auto;left:6px}
 .cloud.notify{border:2px solid var(--accent)}
 .cloud.notify strong{display:block;font-size:13px;color:var(--accent-ink)}
 .cloud.notify span{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.cloud.notify.openable{cursor:pointer}
+.cloud.notify.openable:hover{box-shadow:var(--shadow),0 0 0 3px color-mix(in srgb,var(--accent) 30%,transparent)}
+.cloud.notify .more{display:block;margin-top:6px;font-size:12.5px;font-weight:700;color:var(--accent-ink)}
 .cloud .status{display:block;font-size:12.5px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
 @keyframes pop{from{opacity:0;transform:scale(.85) translateY(6px)}to{opacity:1;transform:none}}
 .dots{display:inline-flex;gap:5px;padding:4px 2px}
@@ -217,6 +220,32 @@ body.left-side .stepsbtn{align-self:flex-start}
 .toolbar{position:absolute;left:50%;bottom:4px;transform:translateX(-50%) translateY(6px);display:flex;gap:2px;padding:4px;border-radius:999px;
   background:color-mix(in srgb,var(--cloud) 88%,transparent);border:1px solid var(--hair);box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
 .charwrap:hover .toolbar,body.settings-open .toolbar{opacity:1;transform:translateX(-50%);pointer-events:auto}
+/* uso del contexto: anillo pequeño abajo, junto a Astro (solo desde el 75%), y su tarjeta */
+.ctxring{position:absolute;right:14px;bottom:52px;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:color-mix(in srgb,var(--cloud) 92%,transparent);box-shadow:var(--shadow);cursor:pointer;display:grid;place-items:center;--ring:#e0a020;animation:pop .3s cubic-bezier(.2,1.4,.4,1) both}
+body.left-side .ctxring{right:auto;left:14px}
+.ctxring.critical{--ring:var(--err)}
+.ctxring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ctxring circle{fill:none;stroke-width:3.4}
+.ctxring .trk{stroke:color-mix(in srgb,var(--muted) 25%,transparent)}
+.ctxring .val{stroke:var(--ring);stroke-linecap:round;stroke-dasharray:0 100;transition:stroke-dasharray .4s}
+.ctxring b{position:relative;font-size:8.5px;font-weight:800;color:var(--ink);letter-spacing:-.02em}
+.ctxring.critical{animation:pop .3s cubic-bezier(.2,1.4,.4,1) both,pulse 1.6s ease-in-out 1s infinite}
+.ctxpop{position:absolute;right:12px;bottom:206px;width:240px;background:var(--cloud);border-radius:18px;box-shadow:var(--shadow);padding:14px;z-index:4;animation:pop .22s cubic-bezier(.2,1.4,.4,1) both;transform-origin:bottom right}
+body.left-side .ctxpop{right:auto;left:0;transform-origin:bottom left}
+.ctxcard{--ring:#e0a020;font-size:13px}
+.ctxcard.ok{--ring:var(--ok)}
+.ctxcard.critical{--ring:var(--err)}
+.ctxcard.empty{color:var(--muted);font-size:12.5px}
+.ctxcard .t{display:flex;align-items:center;gap:7px;margin:0 0 6px;color:var(--muted);font-weight:600}
+.ctxcard .t i{width:8px;height:8px;border-radius:50%;background:var(--ring)}
+.ctxcard .n{margin:0 0 8px;font-family:var(--mono)}
+.ctxcard .n b{font-size:22px;font-weight:700;color:var(--ink)}
+.ctxcard .n small{color:var(--muted);font-size:12.5px}
+.ctxcard .bar{height:6px;border-radius:999px;background:color-mix(in srgb,var(--muted) 22%,transparent);overflow:hidden}
+.ctxcard .bar i{display:block;height:100%;border-radius:999px;background:var(--ring);transition:width .4s}
+.ctxcard .left{margin:8px 0 10px;color:var(--muted);font-family:var(--mono);font-size:12px}
+.ctxcard .compact{width:100%}
+.ctxcard.ok .compact{background:transparent;color:var(--ink);border:1px solid var(--hair)}
 body.minimized .toolbar,body.minimized .sesbar{display:none}
 .toolbar button{width:34px;height:34px;border:0;border-radius:999px;background:transparent;display:grid;place-items:center;cursor:pointer}
 .toolbar button:hover{background:color-mix(in srgb,var(--ink) 8%,transparent)}
@@ -305,6 +334,7 @@ body.left-side .settings{right:auto;left:calc(var(--char-w) - 10px);transform-or
 .toggle i::after{content:"";position:absolute;top:2.5px;left:2.5px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .2s}
 .toggle[aria-checked="true"] i{background:var(--accent)}
 .toggle[aria-checked="true"] i::after{transform:translateX(15px)}
+.settings .hint{display:block;margin-top:6px;font-size:11.5px;color:var(--muted)}
 .quit{width:100%;border:1px solid var(--hair);background:transparent;border-radius:999px;padding:8px;font-size:13px;cursor:pointer;color:var(--muted)}
 .quit:hover{color:var(--ink);border-color:var(--ink)}
 

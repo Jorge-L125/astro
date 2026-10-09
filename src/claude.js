@@ -75,6 +75,21 @@ function killTree(child) {
 const fail = (code, message) => Object.assign(new Error(message), { code });
 
 /**
+ * Tamaño del contexto tras un turno: lo que ocupó la última llamada al modelo (entrada, caché y
+ * salida) frente al límite del modelo principal. { used, window } o null si no viene el dato.
+ */
+function contextUsage(ev) {
+  const its = ev.usage && Array.isArray(ev.usage.iterations) ? ev.usage.iterations : [];
+  const u = its.length ? its[its.length - 1] : ev.usage;
+  if (!u) return null;
+  const used = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.output_tokens || 0);
+  // modelUsage puede traer varios modelos (ayudantes, resúmenes…): el principal es el que más contexto movió.
+  const size = m => (m.inputTokens || 0) + (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0);
+  const main = Object.values(ev.modelUsage || {}).sort((a, b) => size(b) - size(a))[0];
+  return used && main && main.contextWindow ? { used, window: main.contextWindow } : null;
+}
+
+/**
  * Conversación con un proceso `claude -p --input-format stream-json` que se mantiene vivo entre
  * turnos: solo se paga el arranque del CLI una vez. Si el proceso muere (cancelación, inactividad,
  * fallo), el siguiente turno lo relanza con `--resume` y la conversación sigue donde estaba.
@@ -118,6 +133,7 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       structured: ev.structured_output || null,
       sessionId,
       denials: t.denials,
+      context: contextUsage(ev),
     });
   }
 
@@ -309,4 +325,4 @@ function createPool(factory) {
   };
 }
 
-module.exports = { createClaudeSession, createPool, describeTool, buildArgs, lineSplitter };
+module.exports = { createClaudeSession, createPool, describeTool, buildArgs, lineSplitter, contextUsage };

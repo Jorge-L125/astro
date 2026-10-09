@@ -1,0 +1,7 @@
+#!/bin/sh
+# Abre Astro desde Git Bash u otra shell POSIX en Windows: bash no busca archivos .cmd al escribir
+# un comando sin extensión. Igual que astro.cmd: trabaja en la carpeta actual (--here), vuelve al
+# momento y, si Astro ya está abierto, solo lo muestra y se coloca en esa carpeta.
+# La terminal de VS Code define ELECTRON_RUN_AS_NODE=1: con ella Astro.exe arrancaría como Node.
+unset ELECTRON_RUN_AS_NODE
+"$(dirname "$0")/../Astro.exe" --here "$@" >/dev/null 2>&1 &
