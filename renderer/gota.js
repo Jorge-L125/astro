@@ -1,6 +1,8 @@
 // Personaje 3D de Astro (diseño "Gota"): esfera expresiva que se derrite en gota al minimizar,
 // se divide en sesiones y lanza mini-gotas (ayudantes) que orbitan mientras trabajan.
 import * as THREE from '../node_modules/three/build/three.module.js';
+import { createAccessories, isAccessory, showBuilt } from './accessories.js';
+import { createFx } from './fx.js';
 
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -150,122 +152,30 @@ export function createGota(host, opts = {}) {
   // manos flotantes
   const hands = ['L', 'R'].map(() => { const h = mesh(new THREE.SphereGeometry(0.17, 32, 20), mShell); bot.add(h); return h; });
 
-  // ---------- accesorios ----------
+  // ---------- accesorios (renderer/accessories.js) ----------
   const accRoot = new THREE.Group(); bot.add(accRoot);
-  const felt = c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 });
-  const mRed = felt(0xd23b3b), mFur = felt(0xf8f5ee), mBand = felt(0x8a5cf0);
-  const mWitch = new THREE.MeshStandardMaterial({ color: 0x2a2233, roughness: 0.7 });
-  const mSheet = new THREE.MeshPhysicalMaterial({ color: 0xf7f6f3, roughness: 0.9, sheen: 1, sheenColor: new THREE.Color(0xffffff), side: THREE.DoubleSide });
-  const mCape = new THREE.MeshStandardMaterial({ color: 0x17141c, roughness: 0.55 });
-  const mCapeIn = new THREE.MeshStandardMaterial({ color: 0xa3172a, roughness: 0.45, side: THREE.BackSide });
-  const mHair = new THREE.MeshPhysicalMaterial({ color: 0x16141a, roughness: 0.35, clearcoat: 0.6 });
-  const mFang = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
-  const ACC = {}, sway = [];
-  // Sombrero por tramos: cada tramo cuelga del anterior y se balancea con el movimiento.
-  function bentHat(mat, segs) {
-    const r = new THREE.Group(); let parent = r;
-    segs.forEach(([rb, rt, h, bend], i) => {
-      const g = new THREE.Group(); g.rotation.z = bend; g.userData = { bend, w: i }; parent.add(g); sway.push(g);
-      const m = new THREE.Mesh(rt > 0 ? new THREE.CylinderGeometry(rt, rb, h, 40) : new THREE.ConeGeometry(rb, h, 40), mat); m.position.y = h / 2; g.add(m);
-      const nx = new THREE.Group(); nx.position.y = h; g.add(nx); parent = nx;
-    });
-    return { root: r, tip: parent };
-  }
-  { // gorro de Navidad
-    const g = new THREE.Group();
-    const brim = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.13, 20, 64), mFur); brim.rotation.x = Math.PI / 2; g.add(brim);
-    const h = bentHat(mRed, [[0.58, 0.4, 0.38, 0], [0.4, 0.2, 0.36, -0.45], [0.2, 0, 0.34, -0.6]]); g.add(h.root);
-    h.tip.add(new THREE.Mesh(new THREE.SphereGeometry(0.13, 24, 16), mFur));
-    g.position.set(0.05, 0.8, 0); g.rotation.set(-0.12, 0, 0.12); ACC.santa = g;
-  }
-  { // sombrero de bruja
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 0.035, 64), mWitch));
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.53, 0.14, 48), mBand); band.position.y = 0.08; g.add(band);
-    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.03), felt(0xf2c94c)); buckle.position.set(0, 0.08, 0.525); g.add(buckle);
-    const h = bentHat(mWitch, [[0.52, 0.34, 0.5, 0], [0.34, 0.15, 0.45, 0.35], [0.15, 0, 0.4, 0.55]]); g.add(h.root);
-    g.position.set(-0.04, 0.84, 0); g.rotation.set(-0.1, 0, -0.14); ACC.witch = g;
-  }
-  { // gorrito de fiesta
-    const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
-    x.fillStyle = '#fff7e6'; x.fillRect(0, 0, 128, 128); x.lineWidth = 14;
-    ['#ff6fb5', '#3a8bff', '#f2c94c'].forEach((col, j) => { for (let i = -6 + j; i < 8; i += 3) { x.strokeStyle = col; x.beginPath(); x.moveTo(i * 22, 128); x.lineTo(i * 22 + 128, 0); x.stroke(); } });
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(3, 1);
-    const g = new THREE.Group();
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.78, 48), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 })); cone.position.y = 0.39; g.add(cone);
-    const pom = new THREE.Mesh(new THREE.SphereGeometry(0.09, 20, 14), felt(0xf2c94c)); pom.position.y = 0.8; g.add(pom);
-    g.position.set(0.3, 0.84, 0.12); g.rotation.set(0.1, 0, -0.36); ACC.party = g;
-  }
-  { // manta de fantasma con el borde ondulado
-    const pts = [];
-    for (let i = 0; i <= 24; i++) { const a = (i / 24) * Math.PI / 2; pts.push(new THREE.Vector2(Math.sin(a) * 1.07, Math.cos(a) * 1.07)); }
-    for (let i = 1; i <= 14; i++) { const k = i / 14; pts.push(new THREE.Vector2(1.07 + 0.17 * k * k, -1.08 * k)); }
-    const geo = new THREE.LatheGeometry(pts, 96), p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const y = p.getY(i); if (y >= -0.4) continue;
-      const k = (-0.4 - y) / 0.68, w = Math.sin(Math.atan2(p.getZ(i), p.getX(i)) * 7), s = 1 + w * 0.03 * k;
-      p.setY(i, y + w * 0.09 * k * k); p.setX(i, p.getX(i) * s); p.setZ(i, p.getZ(i) * s);
-    }
-    geo.computeVertexNormals();
-    const g = new THREE.Group(); const sheet = new THREE.Mesh(geo, mSheet); g.add(sheet); g.userData.sheet = sheet; ACC.ghost = g;
-  }
-  { // capa de vampiro y pelo en pico
-    const g = new THREE.Group();
-    const ts = Math.PI - 1.35, tl = 2.7;
-    const collar = new THREE.CylinderGeometry(1.32, 1.0, 0.75, 64, 1, true, ts, tl), cape = new THREE.CylinderGeometry(1.0, 1.3, 0.95, 64, 1, true, ts, tl);
-    for (const m of [mCape, mCapeIn]) { const a = new THREE.Mesh(collar, m); a.position.y = -0.05; const b = new THREE.Mesh(cape, m); b.position.y = -0.9; g.add(a, b); }
-    const cap = new THREE.SphereGeometry(1.012, 64, 24, 0, Math.PI * 2, 0, 0.62), cp = cap.attributes.position;
-    for (let i = 0; i < cp.count; i++) {
-      const v = new THREE.Vector3().fromBufferAttribute(cp, i), phi = Math.atan2(v.x, v.z), pol = Math.acos(clamp(v.y / 1.012, -1, 1));
-      const np = pol * (1 + 0.5 * Math.exp(-((phi / 0.32) ** 2)) * (pol / 0.62) ** 3), sp = Math.sin(np);
-      cp.setXYZ(i, Math.sin(phi) * sp * 1.012, Math.cos(np) * 1.012, Math.cos(phi) * sp * 1.012);
-    }
-    cap.computeVertexNormals(); g.add(new THREE.Mesh(cap, mHair));
-    ACC.vampire = g;
-  }
-  { // sombrero de vaquero
-    const g = new THREE.Group();
-    const mTan = felt(0xb47a45), mLeather = felt(0x4a2f1c);
-    const bp = []; for (let i = 0; i <= 12; i++) bp.push(new THREE.Vector2(0.45 + 0.57 * i / 12, 0.02)); bp.push(new THREE.Vector2(1.035, 0)); for (let i = 12; i >= 0; i--) bp.push(new THREE.Vector2(0.45 + 0.57 * i / 12, -0.02));
-    const brimGeo = new THREE.LatheGeometry(bp, 96), b = brimGeo.attributes.position;
-    for (let i = 0; i < b.count; i++) {
-      const x = b.getX(i), z = b.getZ(i), sx = Math.max(0, Math.abs(x) - 0.48) / 0.55;
-      b.setY(i, b.getY(i) + 0.34 * sx * sx - 0.05 * Math.max(0, z - 0.4) / 0.6);
-    }
-    brimGeo.computeVertexNormals(); g.add(new THREE.Mesh(brimGeo, mTan));
-    const crownGeo = new THREE.CylinderGeometry(0.4, 0.5, 0.52, 48, 8), c = crownGeo.attributes.position;
-    for (let i = 0; i < c.count; i++) {
-      const x = c.getX(i), y = c.getY(i), z = c.getZ(i), t = (y + 0.26) / 0.52;
-      c.setX(i, x * (1 - 0.22 * t * t * Math.max(0, z) / 0.45)); c.setY(i, y - (t > 0.99 ? 0.11 * Math.exp(-((x / 0.22) ** 2)) : 0));
-    }
-    crownGeo.computeVertexNormals();
-    const crown = new THREE.Mesh(crownGeo, mTan); crown.position.y = 0.26; g.add(crown);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.485, 0.5, 0.1, 48, 1, true), mLeather); band.position.y = 0.06; g.add(band);
-    g.position.set(0.03, 0.82, -0.02); g.rotation.set(-0.16, 0, 0.1); ACC.cowboy = g;
-  }
-  const fangs = [-1, 1].map(sg => {
-    const f = new THREE.Group(); const m = new THREE.Mesh(new THREE.ConeGeometry(0.036, 0.095, 16), mFang);
-    m.rotation.z = Math.PI; m.position.y = -0.035; m.scale.z = 0.55; f.add(m);
-    return onSurface(f, 0.085 * sg, -0.25, 0.004);
-  });
-  Object.values(ACC).forEach(g => { g.visible = false; accRoot.add(g); });
-  let accName = 'none';
-  const ACC_REACT = {
-    none: () => { play('hop'); setExpr('happy', 1); say('Así estoy más fresco.'); },
-    santa: () => { play('jump'); setExpr('joy', 1.4); say('¡Jo, jo, jo! Feliz Navidad.'); },
-    ghost: () => { play('recoil'); setExpr('surprised', 1.2); say('¡Buuu! ¿Te asusté?'); },
-    vampire: () => { play('spin'); setExpr('wink', 1.4); say('Bleh, bleh… vengo por tus tokens.'); },
-    witch: () => { play('spin'); setExpr('proud', 1.4); say('¡Abracadabra!'); },
-    party: () => { play('dance'); setExpr('joy', 3); say('¡A celebrar!'); },
-    cowboy: () => { play('jump'); setExpr('wink', 1.4); say('¡Yija! Hay nuevo sheriff en la esquina.'); },
-  };
+  const sway = [];
+  const kit = { THREE, bot, accRoot, hands, face, onSurface, sway, scene, camera, bodyMaterial: mShell,
+    felt: c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }), agents: () => agents };
+  const accs = createAccessories(kit);
+  const fx = createFx(THREE, scene);
+  const _at = new THREE.Vector3();
+  // Lo que reciben las reacciones de un diseño.
+  const moveKit = () => ({ play, setExpr, say, fx, at: bot.localToWorld(_at.set(0, 1.1, 0.2)), built: acc, T, pick });
+  let nextAccIdle = 25 + Math.random() * 20;
+  const runOf = new Map(); // id de sesión -> { n, err }: ayudantes de la tanda en curso
+  let doneLine = null; // frase de fin pendiente: { text, until }
+  let accName = 'none', acc = null, accLook = null;
   function setAccessory(n, react) {
-    if (!ACC_REACT[n]) n = 'none';
-    accName = n;
-    for (const k in ACC) ACC[k].visible = k === n;
-    fangs.forEach(f => { f.visible = n === 'vampire'; });
-    hands.forEach(h => { h.material = n === 'ghost' ? mSheet : mShell; });
-    if (react && isLive()) { wake(true); action = null; ACC_REACT[n](); }
+    if (!isAccessory(n)) n = 'none';
+    const next = accs.get(n);
+    if (n !== 'none' && !next) n = 'none';
+    showBuilt(acc, false);
+    accName = n; acc = next;
+    showBuilt(acc, true);
+    hands.forEach((h, i) => { h.material = (acc && acc.handMaterial && acc.handMaterial[i]) || mShell; });
+    fx.clear();
+    if (react && isLive()) { wake(true); action = null; accs.def(n).react.on(moveKit()); }
   }
 
   // suelo
@@ -369,6 +279,12 @@ export function createGota(host, opts = {}) {
   const mouse = { x: innerWidth, y: innerHeight, t: performance.now() };
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 
+  // Lo que un diseño necesita saber para animarse cada fotograma.
+  function accState(dt) {
+    return { T, dt, busy: !!busyOf.get(activeId) || appBusy, awake: mode === 'awake', acting: !!action,
+      hands, hw: hands[1].scale.x, helpers: agents.filter(a => a.sid === activeId && a.status === 'working' && !a.gone),
+      spring, look, setLook: v => { accLook = v; } };
+  }
   function setMode(m) { mode = m; modeT = 0; onModeChange(m); }
   const isLive = () => mode === 'awake' || mode === 'sleep';
 
@@ -388,20 +304,37 @@ export function createGota(host, opts = {}) {
     const b = new THREE.Mesh(miniBodyGeo, mat); g.add(b);
     const mEyes = [-1, 1].map(sg => {
       const e = new THREE.Mesh(gPill, eyeMat), x = 0.3 * sg, y = 0.02, z = Math.sqrt(1 - x * x - y * y);
-      e.position.set(x, y, z + 0.008); e.rotation.set(-Math.atan2(y, z), Math.atan2(x, z), 0); e.scale.z = 0.35; g.add(e); return e;
+      e.position.set(x, y, z + 0.008); e.rotation.set(-Math.atan2(y, z), Math.atan2(x, z), 0); e.scale.z = 0.35; g.add(e);
+      e.userData.base = { x: e.position.x, y: e.position.y, z: e.position.z };
+      return e;
     });
     scene.add(g);
-    return { g, mat, eyeMat, b, eyes: mEyes, vis: 1, blinkT: -1, nextBlink: T + 1 + Math.random() * 3, jumpT: -1, anim: null, slot: SLOTS[0], color: hex, pending: false };
+    return { g, mat, eyeMat, b, eyes: mEyes, vis: 1, blinkT: -1, nextBlink: T + 1 + Math.random() * 3, jumpT: -1, anim: null, slot: SLOTS[0], color: hex, pending: false, acc: 'none', accObj: null };
   }
-  function setMiniColor(mv, hex) { mv.color = hex; mv.mat.color.set(hex); mv.eyeMat.color.set(eyeHex(hex)); }
+  const miniEyes = mv => { const b = accs.get(mv.acc); return b && b.eyesDark ? 0x141416 : eyeHex(mv.color); };
+  function setMiniColor(mv, hex) { mv.color = hex; mv.mat.color.set(hex); mv.eyeMat.color.set(miniEyes(mv)); }
+  // Copia del diseño en una gota de atrás: comparte formas y materiales, sin objetos de mano ni animación.
+  function setMiniAccessory(mv, key) {
+    if (mv.accObj) { mv.g.remove(mv.accObj); mv.accObj = null; }
+    mv.acc = isAccessory(key) ? key : 'none';
+    const b = accs.get(mv.acc);
+    if (b) {
+      mv.accObj = accs.miniCopy(mv.acc);
+      mv.g.add(mv.accObj);
+    }
+    const lift = b ? b.faceLift : 1;
+    mv.eyes.forEach(e => { const p = e.userData.base; e.position.set(p.x * lift, p.y * lift, p.z * lift); });
+    mv.eyeMat.color.set(miniEyes(mv));
+  }
   function layoutSlots() { let i = 0; for (const [id, mv] of minis) { mv.slot = SLOTS[i++] || SLOTS[SLOTS.length - 1]; mv.b.userData.sessionId = id; } }
 
-  function addSession(id, hex) {
+  function addSession(id, hex, accKey = 'none') {
     if (minis.size >= SLOTS.length || swap) return false;
     if (mode === 'sleep') wake(true);
     if (mode !== 'awake') return false;
     const mv = makeMini(activeColor);
-    mv.anim = { type: 'split', t: 0, from: new THREE.Color(activeColor), to: hex };
+    mv.anim = { type: 'split', t: 0, from: new THREE.Color(activeColor), to: hex, acc: accKey };
+    setMiniAccessory(mv, accName); // nace como la gota de la que sale y luego se pone el suyo
     mv.color = hex;
     minis.set(id, mv);
     layoutSlots();
@@ -419,11 +352,14 @@ export function createGota(host, opts = {}) {
   }
   function finishSwap() {
     const { id, mv, slot } = swap; swap = null;
-    const prevId = activeId, prevColor = activeColor, nextColor = mv.color;
+    const prevId = activeId, prevColor = activeColor, nextColor = mv.color, prevAcc = accName, nextAcc = mv.acc;
     const entries = [...minis].map(([k, v]) => (k === id ? [prevId, mv] : [k, v]));
     minis.clear(); entries.forEach(([k, v]) => minis.set(k, v));
     mv.anim = null; mv.vis = 1; mv.pending = false;
     setMiniColor(mv, prevColor);
+    setMiniAccessory(mv, prevAcc);
+    setAccessory(nextAcc, false);
+    doneLine = null;
     mv.g.position.set(slot[0], slot[1], slot[2]); mv.g.scale.setScalar(slot[3]);
     activeId = id; activeColor = nextColor;
     bodyColor.set(nextColor); targetColor.set(nextColor);
@@ -476,6 +412,8 @@ export function createGota(host, opts = {}) {
     const rm = new THREE.MeshBasicMaterial({ color: base.clone(), transparent: true, opacity: 0, depthWrite: false });
     const ring = new THREE.Mesh(gRingFx, rm); ring.rotation.x = -Math.PI / 2; ring.visible = false; scene.add(ring);
     agents.push({ id, sid, status: 'working', mat, m, ring, rm, born: T, endT: -1, vis: 0, pos: root.position.clone(), gone: false });
+    if (!busyOf.get(sid)) runOf.set(sid, { n: 0, err: 0 });
+    runOf.get(sid).n++;
     busyOf.set(sid, true);
     if (sid === activeId) {
       if (mode === 'sleep') wake(true);
@@ -487,6 +425,19 @@ export function createGota(host, opts = {}) {
     if (!a || a.status !== 'working') return;
     a.status = ok ? 'done' : 'error'; a.endT = T;
     busyOf.set(a.sid, agents.some(x => x.sid === a.sid && x.status === 'working'));
+    const run = runOf.get(a.sid);
+    if (run && !ok) run.err++;
+    // al acabar la tanda sin errores, el diseño lo celebra a su manera
+    if (run && !busyOf.get(a.sid) && a.sid === activeId && !run.err && isLive()) {
+      const n = run.n;
+      setTimeout(() => {
+        if (!isLive() || swap) return;
+        const d = accs.def(accName);
+        if (d.react.done) d.react.done(moveKit());
+        // la frase espera a que Claude termine de responder (antes no se vería)
+        doneLine = { text: d.doneLine(n), until: T + 60 };
+      }, 800);
+    }
     if (a.sid !== activeId) { removeAgent(a); return; }
     if (!ok && isLive()) { wake(true); setExpr('worried', 1.8); play('shake'); }
   }
@@ -513,7 +464,10 @@ export function createGota(host, opts = {}) {
       for (const a of agents) if (!a.gone && a.m.visible) targets.push(a.m);
     }
     const hit = ray.intersectObjects(targets, false)[0];
-    if (!hit && accName !== 'none' && accRoot.visible && ray.intersectObject(ACC[accName], true).length) return { type: 'body' };
+    if (!hit && acc && accRoot.visible && ray.intersectObject(acc.group, true).length) return { type: 'body' };
+    if (!hit && isLive() && !swap) {
+      for (const [id, mv] of minis) if (mv.accObj && !mv.anim && mv.g.visible && ray.intersectObject(mv.accObj, true).length) return { type: 'mini', id };
+    }
     if (!hit) return null;
     if (hit.object.userData.sessionId !== undefined) return { type: 'mini', id: hit.object.userData.sessionId };
     if (hit.object.userData.agentId !== undefined) return { type: 'agent', id: hit.object.userData.agentId };
@@ -526,6 +480,7 @@ export function createGota(host, opts = {}) {
     lastActive = T;
     if (mode !== 'sleep') return;
     setMode('awake'); setExpr('surprised', 0.8); play(poked ? 'jump' : 'recoil');
+    nextAccIdle = T + 25 + Math.random() * 20;
     if (!silent) say(pick(['¡Ah! Estaba descansando los circuitos.', '¡Despierto! Bueno, casi.', '¿Eh? ¿Qué me perdí?']));
   }
   function minimize() {
@@ -636,14 +591,14 @@ export function createGota(host, opts = {}) {
     mFx.color.copy(bodyColor);
     const lum = 0.2126 * bodyColor.r + 0.7152 * bodyColor.g + 0.0722 * bodyColor.b;
     // con la manta de fantasma los ojos van siempre oscuros sobre la tela blanca
-    mGlow.color.set(lum > 0.3 || accName === 'ghost' ? 0x141416 : 0xffffff);
+    mGlow.color.set(lum > 0.3 || (acc && acc.eyesDark) ? 0x141416 : 0xffffff);
   }
 
   // ---------- bucle ----------
   const clock = new THREE.Timer();
   function applyFace(blink, fv) {
     // la manta del fantasma tapa la superficie: la cara se adelanta un poco para quedar encima
-    face.visible = fv > 0.01; face.scale.setScalar(Math.max(0.001, fv) * (accName === 'ghost' ? 1.09 : 1));
+    face.visible = fv > 0.01; face.scale.setScalar(Math.max(0.001, fv) * (acc ? acc.faceLift : 1));
     const setW = (o, w, sx = 1, sy = 1) => { o.visible = w > 0.01; o.scale.set(Math.max(0.001, w * sx), Math.max(0.001, w * sy), Math.max(0.001, w)); };
     for (const s of ['L', 'R']) {
       const e = eyes[s];
@@ -699,7 +654,7 @@ export function createGota(host, opts = {}) {
           _sp.set(sl[0], sl[1], sl[2]).normalize().multiplyScalar(0.3);
           _st.lerpVectors(_sp, _st, k); sc = lerp(0.8, sl[3], k);
           mv.mat.color.copy(mv.anim.from).lerp(_sc.set(mv.anim.to), k);
-          if (t > 0.9) { mv.anim = null; setMiniColor(mv, mv.color); }
+          if (t > 0.9) { const k = mv.anim.acc; mv.anim = null; setMiniColor(mv, mv.color); setMiniAccessory(mv, k); }
         } else {
           const k = ease(clamp(t / 0.55));
           _st.lerp(_sp.set(root.position.x, root.position.y, 0.1), k); sc = lerp(sc, 0.25, k);
@@ -811,8 +766,14 @@ export function createGota(host, opts = {}) {
     // actitudes en reposo: se aburre, bosteza antes de dormirse y se pone tímida si la miras mucho
     if (T - lastActive < 1) { boredDone = false; yawnDone = false; }
     if (awake && !action && !down && !swap && !petting && !appBusy && !talking && !busyOf.get(activeId)) {
-      if (T - lastActive > SLEEP_AFTER - 5 && !yawnDone) { yawnDone = true; play('yawn'); setExpr('yawn', 1.3); }
-      else if (T - lastActive > BORED_AFTER && !boredDone) { boredDone = true; play('lookaround'); setExpr('bored', 2.6); say(pick(['¿Hacemos algo?', 'Qué tranquilo está esto…', 'Mmm… me aburro un poquito.'])); }
+      const idleMove = acc && accs.def(accName).react.idle;
+      if (idleMove && T > nextAccIdle) { nextAccIdle = T + 25 + Math.random() * 20; idleMove(moveKit()); }
+      else if (T - lastActive > SLEEP_AFTER - 5 && !yawnDone) { yawnDone = true; play('yawn'); setExpr('yawn', 1.3); }
+      else if (T - lastActive > BORED_AFTER && !boredDone) {
+        boredDone = true;
+        if (idleMove) { nextAccIdle = T + 25 + Math.random() * 20; idleMove(moveKit()); }
+        else { play('lookaround'); setExpr('bored', 2.6); say(pick(['¿Hacemos algo?', 'Qué tranquilo está esto…', 'Mmm… me aburro un poquito.'])); }
+      }
       else if (hover && T - hoverSince > 3.5 && T - lastShy > 15) { lastShy = T; setExpr('shy', 2.2); play('giggle'); say(pick(['¿Por qué me miras tanto?', 'Me pones nervioso…', 'Jeje… ¿qué pasa?'])); }
     }
 
@@ -843,6 +804,9 @@ export function createGota(host, opts = {}) {
       tx = clamp((w.pos.x - root.position.x) / 1.3, -1, 1); ty = clamp(-(w.pos.y - root.position.y) / 0.8, -1, 1) * 0.7;
     }
     if (awake && lookAt && T < lookAt.until) { tx = clamp((lookAt.x - c.x) / (innerWidth * 0.5), -1, 1); ty = clamp((lookAt.y - c.y) / (innerHeight * 0.5), -1, 1); }
+    // algo del diseño que mirar (los meteoros del astronauta)
+    if (awake && accLook && !action) { _v.copy(accLook).project(camera); tx = clamp(_v.x * 1.4, -1, 1); ty = clamp(-_v.y * 1.4, -1, 1) * 0.8; }
+    accLook = null;
     if (awake && override === 'shy') { tx = mouse.x > c.x ? -0.75 : 0.75; ty = 0.35; } // aparta la mirada
     const lk = 1 - Math.exp(-5 * dt);
     look.ry = lerp(look.ry, tx * 0.6, lk); look.rx = lerp(look.rx, ty * 0.35, lk);
@@ -870,7 +834,8 @@ export function createGota(host, opts = {}) {
     root.position.set(o.x + a.x + sw.x, o.y + a.y + (bob + talkBob) * o.face + sw.y, sw.z);
     bot.rotation.set(look.rx + a.rx + (asleep ? 0.12 : 0), look.ry + a.ry + dragRY, a.rz + thinkSway + (asleep ? Math.sin(T * 0.6) * 0.05 : 0));
     const sy = o.sy * a.sy * breath, sxz = 1 / Math.sqrt(sy);
-    bot.scale.set(o.s * sxz * a.sxw * sw.s, o.s * sy * sw.s, o.s * sxz * sw.s);
+    const vk = Math.max(0.001, (acc && acc.parts.vanishK) ?? 1);
+    bot.scale.set(o.s * sxz * a.sxw * sw.s * vk, o.s * sy * sw.s * vk, o.s * sxz * sw.s * vk);
     applyFace(blink, o.face);
 
     const hw = o.face;
@@ -881,6 +846,7 @@ export function createGota(host, opts = {}) {
       h.position.set(lerp(0.5, 1.13, hw) * sg + dx, -0.42 + up + Math.sin(T * 2 + i * 1.3) * 0.04, 0.2);
     });
     accRoot.scale.setScalar(Math.max(0.001, hw)); accRoot.visible = hw > 0.01;
+    if (acc && acc.update) acc.update(accState(dt));
     if (accName !== 'none') {
       const dd = Math.max(dt, 1e-3);
       const vy = (root.position.y - spring.py) / dd, ay = (vy - spring.pvy) / dd;
@@ -891,8 +857,9 @@ export function createGota(host, opts = {}) {
       spring.ax = clamp(spring.ax + spring.vx * dt, -0.7, 0.7); spring.az = clamp(spring.az + spring.vz * dt, -0.7, 0.7);
       if (![spring.ax, spring.vx, spring.az, spring.vz, spring.pvy].every(Number.isFinite)) Object.assign(spring, { ax: 0, vx: 0, az: 0, vz: 0, pvy: 0 });
       sway.forEach(g => { g.rotation.z = g.userData.bend + spring.az * 0.6 * g.userData.w; g.rotation.x = spring.ax * 0.5 * g.userData.w; });
-      if (accName === 'ghost') ACC.ghost.userData.sheet.rotation.y = T * 0.35;
     }
+    fx.update(dt);
+    if (doneLine && !appBusy && !talking && isLive()) { if (T < doneLine.until) say(doneLine.text); doneLine = null; }
     wheelAcc *= Math.exp(-1.5 * dt); circAcc *= Math.exp(-0.6 * dt);
 
     // suelo
@@ -954,6 +921,7 @@ export function createGota(host, opts = {}) {
     restore,
     // sesiones
     addSession, switchTo, closeSession, flagSession, clearFlag,
+    setMiniAccessory: (id, key) => { const mv = minis.get(id); if (mv) setMiniAccessory(mv, key); },
     // ayudantes
     spawnAgent, finishAgent, clearAgents,
     highlightAgent: id => { highlightId = id; },
@@ -974,6 +942,8 @@ export function createGota(host, opts = {}) {
       setExpr('love', 2.2); play('giggle');
     },
     // vuelves al computador tras un rato sin usarlo
+    // gesto de reposo del diseño puesto, ya (para probarlo sin esperar)
+    outfitIdle: () => { const d = acc && accs.def(accName); if (d && d.react.idle) d.react.idle(moveKit()); },
     welcomeBack: () => {
       if (!isLive() || appBusy) return;
       wake(true); setExpr('love', 1.8); play('jump'); say('¡Volviste! Te extrañé.');

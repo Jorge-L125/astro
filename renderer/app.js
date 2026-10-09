@@ -4,6 +4,8 @@ import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 import { groupDenials } from './tools.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
+import { ACCESSORY_LIST } from './accessories.js';
+import { outfitFor, choose, withMode, loadOutfitPrefs, saveOutfitPrefs, outfitRequest, seasonSuggestion } from './outfits.js';
 
 const api = window.astro;
 const $ = id => document.getElementById(id);
@@ -24,8 +26,11 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('astro-' + k); return v === null ? d : v; } catch { return d; } },
   set(k, v) { try { localStorage.setItem('astro-' + k, v); } catch { /* sin almacenamiento */ } },
 };
-const cfg = { color: store.get('color', '#ff6b4a'), side: store.get('side', 'right'), theme: store.get('theme', 'auto'), glass: store.get('glass', 'glass'), acc: store.get('acc', 'none') };
-const ACCESSORIES = [['none', 'Ninguno', '🚫'], ['santa', 'Navidad', '🎅'], ['ghost', 'Fantasma', '👻'], ['vampire', 'Vampiro', '🧛'], ['witch', 'Bruja', '🧙‍♀️'], ['party', 'Fiesta', '🥳'], ['cowboy', 'Vaquero', '🤠']];
+const cfg = { color: store.get('color', '#ff6b4a'), side: store.get('side', 'right'), theme: store.get('theme', 'auto'), glass: store.get('glass', 'glass') };
+// Diseño de cada sesión: por carpeta de trabajo o siempre el mismo (renderer/outfits.js).
+// astro-acc es el accesorio único de versiones anteriores: se migra una vez.
+let { prefs: outfitPrefs, legacy: legacyAcc } = loadOutfitPrefs(store.get('outfits', null), store.get('acc', null));
+const saveOutfits = () => store.set('outfits', saveOutfitPrefs(outfitPrefs));
 function shade(hex, amt) {
   const n = parseInt(hex.slice(1), 16);
   const f = v => clamp(Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt), 0, 255);
@@ -45,7 +50,7 @@ function mkSession(name, color, folder = null) {
   clouds.className = 'clouds';
   watchFade(clouds);
   clouds.setAttribute('aria-live', 'polite');
-  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder, steps: [], stepsT0: 0 };
+  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder, steps: [], stepsT0: 0, acc: outfitFor(outfitPrefs, folder) };
 }
 const sessions = [];
 let active = mkSession('Principal', cfg.color);
@@ -124,19 +129,39 @@ for (const [id, key] of [['seg-side', 'side'], ['seg-theme', 'theme'], ['seg-gla
     cfg[key] = v; store.set(key, v); applyLayout();
   });
 }
-// Accesorios de la gota: se guardan para el próximo arranque.
-function setAccessory(k, react) {
-  cfg.acc = k; store.set('acc', k);
-  gota.setAccessory(k, react);
-  [...$('accs').children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
+// Diseño de una sesión según su carpeta (o el de siempre). La de delante lo lleva completo; las de atrás, una copia.
+function applyOutfit(s, react) {
+  const k = outfitFor(outfitPrefs, s.folder);
+  if (k === s.acc && !react) return;
+  s.acc = k;
+  if (s === active) gota.setAccessory(k, react); else gota.setMiniAccessory(s.id, k);
 }
-ACCESSORIES.forEach(([k, label, emoji]) => {
+// Elegir un diseño: para el proyecto de la sesión de delante (y las demás sesiones en esa carpeta) o para todas.
+function setAccessory(k, react) {
+  outfitPrefs = choose(outfitPrefs, active.folder, k); saveOutfits();
+  for (const s of sessions) applyOutfit(s, s === active && react);
+  renderOutfitUi();
+}
+function setOutfitMode(mode) {
+  outfitPrefs = withMode(outfitPrefs, mode, active.acc); saveOutfits();
+  for (const s of sessions) applyOutfit(s, false);
+  renderOutfitUi();
+}
+function renderOutfitUi() {
+  [...$('accs').children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === active.acc)));
+  [...$('seg-accmode').children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === outfitPrefs.mode)));
+  $('acc-hint').textContent = outfitPrefs.mode === 'always' ? 'Todas las sesiones llevan el mismo diseño'
+    : active.folder ? `Para el proyecto «${baseName(active.folder)}»` : 'Para esta sesión';
+}
+$('seg-accmode').addEventListener('click', e => { const v = e.target.dataset && e.target.dataset.v; if (v) setOutfitMode(v); });
+ACCESSORY_LIST.forEach(({ key: k, label, emoji }) => {
   const b = document.createElement('button');
   b.textContent = emoji; b.title = label; b.setAttribute('aria-label', label); b.dataset.k = k;
   b.onclick = () => setAccessory(k, true);
   $('accs').append(b);
 });
-setAccessory(cfg.acc, false);
+gota.setAccessory(active.acc, false);
+renderOutfitUi();
 function toggleSettings(open = $('settings').hidden) {
   $('settings').hidden = !open;
   body.classList.toggle('settings-open', open);
@@ -382,6 +407,15 @@ function detachCapture() {
   api.discardCapture(attached.id);
   attached = null;
   renderAttachment();
+}
+function offerSeason() {
+  const sug = seasonSuggestion(new Date(), active.acc, id => store.get('season-' + id, '') === 'no');
+  if (!sug) return;
+  const c = cloud(active, 'capture');
+  c.innerHTML = '<p></p><div class="row"><button class="btn use">Póntelo</button><button class="opt drop">No, gracias</button></div>';
+  c.querySelector('p').textContent = sug.text;
+  c.querySelector('.use').onclick = () => { c.remove(); setAccessory(sug.key, true); };
+  c.querySelector('.drop').onclick = () => { c.remove(); store.set('season-' + sug.id, 'no'); gota.act('nod'); };
 }
 function offerCapture(cap) {
   dropOffer();
@@ -873,6 +907,9 @@ async function ask(s, text, capture = null) {
   const uq = !capture && !cmd ? usageQuestion(text) : null;
   if (uq === 'context') { explainContext(s, text); return; }
   if (uq === 'plan') cmd = parseSlash('/usage');
+  // "Ponte el sombrero de pirata": lo hace Astro, sin llamar a Claude.
+  const oq = !capture && !cmd ? outfitRequest(text) : null;
+  if (oq) { if (s === active) { closeAsk(); closePanel(); } setAccessory(oq, true); return; }
   // /clear lo hace Astro: pide confirmación y reinicia la sesión, sin llamar a Claude.
   if (cmd && cmd.name === 'clear') { if (s === active) closeAsk(); confirmReset(s); return; }
   setBusy(s, true);
@@ -1158,6 +1195,7 @@ function rememberFolder(dir) {
 function applyFolder(s, dir) {
   const prev = s.folder;
   s.folder = dir;
+  applyOutfit(s, false);
   rememberFolder(dir);
   const had = s.history.length || s.claudeId;
   s.claudeId = null; s.history.length = 0;
@@ -1257,7 +1295,7 @@ function newSession(opts = {}) {
   const used = sessions.map(s => s.color.toLowerCase());
   const s = mkSession(opts.name || `Sesión ${sessions.length + 1}`, SESS_COLORS.find(c => !used.includes(c.toLowerCase())) || pick(SESS_COLORS), opts.folder || active.folder);
   if (opts.name) s.renamed = true;
-  if (!gota.addSession(s.id, s.color)) return null;
+  if (!gota.addSession(s.id, s.color, s.acc)) return null;
   sessions.push(s);
   renderSessions();
   quip(`Me dividí: ${s.name}.`);
@@ -1284,6 +1322,7 @@ function onSwitched(id) {
   if (offer) { offer.s = s; offer.use.disabled = s.busy; s.clouds.append(offer.el); }
   stickToBottom(s);
   applyAccent();
+  renderOutfitUi();
   gota.setMood(s.mood);
   gota.setBusy?.(s.busy);
   renderSessions();
@@ -1390,6 +1429,10 @@ api.config().then(async c => {
   for (const s of sessions) if (!s.folder) s.folder = s === active && c.launchDir ? c.launchDir : defaultFolder;
   markReady();
   rememberFolder(active.folder);
+  if (legacyAcc && active.folder) { outfitPrefs = choose(outfitPrefs, active.folder, legacyAcc); legacyAcc = null; saveOutfits(); }
+  for (const s of sessions) applyOutfit(s, false);
+  renderOutfitUi();
+  offerSeason();
   if (Array.isArray(c.commands)) commands = c.commands;
   if (Array.isArray(c.displays)) { displays = c.displays; showDisplays(); }
   $('info').innerHTML = `<p class="lbl2">Conexión</p>Atajo: <b></b><br>Carpeta: <b></b><br>Modelo: <b></b><br>Sesiones: <b></b> nueva · <b></b> cambiar`;
@@ -1413,6 +1456,13 @@ api.config().then(async c => {
 if (new URLSearchParams(location.search).has('debug')) {
   window.astroDebug = {
     sessions: () => sessions.map(s => ({ id: s.id, name: s.name, busy: s.busy, active: s === active })),
+    // gesto de reposo del diseño puesto, sin esperar
+    outfitIdle: () => gota.outfitIdle(),
+    outfit: k => setAccessory(k, true),
+    outfitMode: setOutfitMode,
+    outfits: () => ({ prefs: outfitPrefs, sessions: sessions.map(s => ({ name: s.name, folder: s.folder, acc: s.acc, active: s === active })) }),
+    newSessionIn: folder => newSession({ folder, name: baseName(folder) }),
+    setFolder: (i, dir) => applyFolder(sessions[i], dir),
     // Simula el uso de contexto de la sesión activa (p. ej. context(160000, 200000) para ver el anillo).
     context: (used, window) => trackContext(active, { context: { used, window } }),
     newSession,
