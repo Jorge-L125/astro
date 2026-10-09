@@ -121,3 +121,20 @@ test('el gato mueve las orejas y la cola de vez en cuando, y más si lo acaricia
   cat.update(st(30, { petting: true }));
   assert.ok(ears.every(e => e.rotation.x < -0.2), 'con mimos, las orejas se echan hacia atrás');
 });
+
+test('con el gato, los ayudantes son ovillos de lana (y dejan de serlo al cambiar de diseño)', async () => {
+  const THREE = await three();
+  const { createAccessories } = await load();
+  const kit = await fakeKit();
+  const helper = { id: 1, mat: new THREE.MeshStandardMaterial({ color: 0x3a8bff }), m: new THREE.Mesh(new THREE.SphereGeometry(0.13)) };
+  kit.agents = () => [helper];
+  const cat = createAccessories(kit).get('cat');
+  cat.update({ T: 1, dt: 0.016, busy: true, awake: true, acting: false, hands: [], hw: 1, helpers: [helper], spring: { ax: 0, az: 0 }, look: {}, setLook() {} });
+  assert.ok(helper.yarn && helper.yarn.visible, 'lleva su ovillo');
+  assert.equal(helper.yarn.parent, helper.m, 'pegado al ayudante');
+  let sameColor = false;
+  helper.yarn.traverse(o => { if (o.isMesh && o.material === helper.mat) sameColor = true; });
+  assert.ok(sameColor, 'del color del ayudante');
+  cat.hide();
+  assert.equal(helper.yarn.visible, false);
+});

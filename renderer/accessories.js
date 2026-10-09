@@ -531,6 +531,20 @@ function buildChef() {
     hide() { parts.potK = 0; pot.visible = false; } });
 }
 
+// Ovillo de lana sobre un ayudante (diseño de gato): hebras del color del ayudante y una hebra suelta.
+let YARN = null;
+function addYarn(a) {
+  if (!YARN) {
+    YARN = { ring: new THREE.TorusGeometry(0.128, 0.011, 6, 40), rot: [] };
+    for (let i = 0; i < 9; i++) YARN.rot.push([Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI]);
+    YARN.loose = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([[0.1, -0.08, 0.05], [0.2, -0.13, 0.08], [0.27, -0.1, 0.02], [0.33, -0.16, 0]].map(q => new THREE.Vector3(...q))), 16, 0.009, 5);
+  }
+  const g = new THREE.Group();
+  for (const r of YARN.rot) { const m = new THREE.Mesh(YARN.ring, a.mat); m.rotation.set(...r); g.add(m); }
+  g.add(new THREE.Mesh(YARN.loose, a.mat));
+  a.m.add(g); a.yarn = g;
+}
+
 function buildCat(kit) {
   const tex = canvasTex(512, 256, x => {
     x.fillStyle = '#f0a457'; x.fillRect(0, 0, 512, 256); x.fillStyle = '#c9732f';
@@ -599,10 +613,16 @@ function buildCat(kit) {
       const amp = st.petting ? 0.45 : 0.06 + 0.5 * sw;
       tail.rotation.set(0.08 * Math.sin(st.T * sp * 0.7) * (amp / 0.45), amp * Math.sin(st.T * (sw > 0 ? 7 : sp)), 0.15 * Math.sin(st.T * sp + 1) * (amp / 0.45));
       tail.scale.setScalar(Math.max(0.001, st.hw));
+      // los ayudantes son ovillos de lana que ruedan mientras trabajan
+      for (const h of st.helpers) {
+        if (!h.yarn) addYarn(h);
+        h.yarn.visible = true;
+        h.yarn.rotation.set(st.T * 1.3 + h.id, st.T * 0.9, 0);
+      }
       if (!st.petting) parts.nextPurr = Math.max(parts.nextPurr, st.T + 1.5);
       else if (st.T > parts.nextPurr && st.say) { parts.nextPurr = st.T + 4; st.say(Math.random() < 0.5 ? 'Purrr… purrr…' : 'Prrrr… justo ahí.'); }
     },
-    hide() { parts.twitchT = -9; parts.swishT = -9; } });
+    hide() { parts.twitchT = -9; parts.swishT = -9; for (const h of kit.agents()) if (h.yarn) h.yarn.visible = false; } });
 }
 
 // «1 tarea terminada» / «3 tareas terminadas»; fijo: el verbo no concuerda en número («al punto»).
