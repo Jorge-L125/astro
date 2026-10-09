@@ -127,6 +127,167 @@ function buildCowboy(kit) {
   return blank({ group: g });
 }
 
+// Esfera partida en dos: lo de fuera de la ventana y lo de dentro (para cascos con visor o capuchas).
+function splitSphere(r, inWin, thetaLen = Math.PI) {
+  const geo = new THREE.SphereGeometry(r, 128, 80, 0, Math.PI * 2, 0, thetaLen), idx = geo.index.array, p = geo.attributes.position, a = [], b = [], v = new THREE.Vector3();
+  for (let i = 0; i < idx.length; i += 3) {
+    v.set(0, 0, 0); for (let k = 0; k < 3; k++) { const j = idx[i + k]; v.x += p.getX(j); v.y += p.getY(j); v.z += p.getZ(j); }
+    v.normalize(); (inWin(v) ? b : a).push(idx[i], idx[i + 1], idx[i + 2]);
+  }
+  const outG = geo.clone(); outG.setIndex(a); geo.setIndex(b); return [outG, geo];
+}
+const ellipseWin = (ax, ay, cy, n = 2) => v => v.z > 0 && Math.abs(v.x / ax) ** n + Math.abs((v.y - cy) / ay) ** n < 1;
+function rimTube(r, ax, ay, cy, tube, mat, n = 2) {
+  const se = c => Math.sign(c) * Math.abs(c) ** (2 / n);
+  const pts = []; for (let i = 0; i < 96; i++) { const a = i / 96 * Math.PI * 2, x = ax * se(Math.cos(a)), y = cy + ay * se(Math.sin(a)); pts.push(new THREE.Vector3(x, y, Math.sqrt(Math.max(0, 1 - x * x - y * y))).multiplyScalar(r)); }
+  return new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), 144, tube, 10, true), mat);
+}
+let TOOLS = null; // materiales de herramientas
+const tools = () => TOOLS || (TOOLS = {
+  wood: new THREE.MeshStandardMaterial({ color: 0x9a6a3e, roughness: 0.6 }),
+  steel: new THREE.MeshPhysicalMaterial({ color: 0xaab0b8, metalness: 0.85, roughness: 0.25 }),
+});
+
+// Texturas pintadas en un <canvas> (solo existen en el navegador; en las pruebas de Node, sin textura).
+function canvasTex(w, h, paint) {
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas'); c.width = w; c.height = h; paint(c.getContext('2d'));
+  return new THREE.CanvasTexture(c);
+}
+let METEOR_TEX = null;
+function meteorTex() {
+  return METEOR_TEX || (METEOR_TEX = {
+    trail: canvasTex(16, 128, x => { const gr = x.createLinearGradient(0, 0, 0, 128);
+      gr.addColorStop(0, 'rgba(255,120,60,0)'); gr.addColorStop(0.6, 'rgba(255,120,50,.55)'); gr.addColorStop(0.92, 'rgba(255,170,70,.95)'); gr.addColorStop(1, 'rgba(255,215,140,1)'); x.fillStyle = gr; x.fillRect(0, 0, 16, 128); }),
+    halo: canvasTex(64, 64, x => { const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,170,80,.7)'); gr.addColorStop(1, 'rgba(255,140,60,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); }),
+  });
+}
+
+function buildAstro(kit) {
+  const g = new THREE.Group();
+  const suit = new THREE.MeshPhysicalMaterial({ color: 0xf4f4f0, roughness: 0.45, clearcoat: 0.4 });
+  const W = [0.64, 0.42, 0.03], RH = 1.075;
+  const [shellG, visorG] = splitSphere(RH, ellipseWin(...W), Math.PI * 0.8);
+  g.add(new THREE.Mesh(shellG, suit));
+  const visor = new THREE.Mesh(visorG, new THREE.MeshPhysicalMaterial({ color: 0xa8c8ff, roughness: 0.03, clearcoat: 1, transparent: true, opacity: 0.24, depthWrite: false }));
+  visor.scale.setScalar(1.012); visor.renderOrder = 5; g.add(visor);
+  const gray = new THREE.MeshPhysicalMaterial({ color: 0x9aa0aa, metalness: 0.5, roughness: 0.35 });
+  g.add(rimTube(RH + 0.01, W[0], W[1], W[2], 0.05, gray));
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(RH * Math.sin(Math.PI * 0.8), 0.08, 16, 64), gray); collar.rotation.x = Math.PI / 2; collar.position.y = RH * Math.cos(Math.PI * 0.8); g.add(collar);
+  [-1, 1].forEach(s => { const ear = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.12, 32), gray); ear.rotation.z = Math.PI / 2; ear.position.set(s * 1.06, 0.05, 0); g.add(ear); });
+  const light = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshStandardMaterial({ color: 0xff4d3d, emissive: 0xff4d3d, emissiveIntensity: 1 }));
+  light.position.set(-1.13, 0.05, 0); g.add(light);
+
+  // Meteoros que cruzan el cielo detrás de la gota; viven en coordenadas de la escena.
+  const fxg = new THREE.Group(); kit.scene.add(fxg);
+  const parts = { light, fxg, meteors: [], next: 0 };
+  function spawnMeteor() {
+    const tex = meteorTex(), m = new THREE.Group(), dir = Math.random() < 0.5 ? -1 : 1;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.095, 16, 10), new THREE.MeshBasicMaterial({ color: 0xff9a3c, transparent: true }));
+    const trail = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 1.7), new THREE.MeshBasicMaterial({ map: tex.trail, transparent: true, depthWrite: false }));
+    trail.position.y = 0.85;
+    const halo = new THREE.Mesh(new THREE.CircleGeometry(0.2, 24), new THREE.MeshBasicMaterial({ map: tex.halo, transparent: true, depthWrite: false })); head.add(halo);
+    m.add(trail, head);
+    const v = new THREE.Vector3(-dir * (2.2 + Math.random()), -(2.6 + Math.random()), 0);
+    m.position.set(dir * (1.2 + Math.random() * 2.2), 4.6 + Math.random(), -3 - Math.random() * 2);
+    m.rotation.z = Math.atan2(v.y, v.x) + Math.PI / 2;
+    fxg.add(m); const it = { g: m, v, age: 0, life: 2.4, head, halo, trail }; parts.meteors.push(it); return it;
+  }
+  function drop(it) {
+    fxg.remove(it.g);
+    for (const o of [it.head, it.halo, it.trail]) { o.geometry.dispose(); o.material.dispose(); }
+  }
+  return blank({ group: g, handMaterial: [suit, suit], parts,
+    update(st) {
+      light.material.emissiveIntensity = st.busy ? (Math.sin(st.T * 14) > 0 ? 1.8 : 0.1) : 0.7 + 0.5 * Math.sin(st.T * 2);
+      if (st.awake && st.T > parts.next) {
+        parts.next = st.T + 2.8 + Math.random() * 4;
+        const it = spawnMeteor();
+        if (!st.acting && !st.busy) parts.watch = it; // si no está ocupado, lo sigue con la mirada
+      }
+      for (let i = parts.meteors.length - 1; i >= 0; i--) {
+        const it = parts.meteors[i]; it.age += st.dt; it.g.position.addScaledVector(it.v, st.dt);
+        const f = it.age / it.life, a = Math.min(1, it.age * 5) * (1 - Math.max(0, (f - 0.7) / 0.3));
+        it.head.material.opacity = a; it.trail.material.opacity = a; it.halo.material.opacity = a; it.trail.scale.y = Math.min(1, it.age * 2.5);
+        if (it.age >= it.life) { drop(it); parts.meteors.splice(i, 1); if (parts.watch === it) parts.watch = null; }
+      }
+      if (parts.watch && parts.watch.age < parts.watch.life * 0.8) st.setLook(parts.watch.g.position);
+    },
+    hide() { parts.meteors.forEach(drop); parts.meteors.length = 0; parts.watch = null; },
+  });
+}
+
+function buildHardhat(kit) {
+  const { steel } = tools();
+  const g = new THREE.Group();
+  const yel = new THREE.MeshPhysicalMaterial({ color: 0xf5c518, roughness: 0.35, clearcoat: 0.6 });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32, 0, Math.PI * 2, 0, Math.PI / 2), yel); dome.scale.set(1.04, 0.82, 1.06); g.add(dome);
+  const brim = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.045, 64), yel); brim.scale.z = 1.1; brim.position.z = 0.08; g.add(brim);
+  const ridge = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 12, 48, Math.PI), yel); ridge.scale.set(1.06, 0.83, 1); ridge.rotation.y = Math.PI / 2; g.add(ridge);
+  const lamp = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.12, 0.12, 24), new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.4 })); lamp.rotation.x = Math.PI / 2 - 0.5; lamp.position.set(0, 0.45, 0.9); g.add(lamp);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.085, 24), new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xfff2b0, emissiveIntensity: 1.2 }));
+  lens.position.set(0, 0.48, 0.965); lens.rotation.x = -0.5; g.add(lens);
+  g.position.set(0, 0.52, 0); g.scale.setScalar(0.92); g.rotation.x = -0.1;
+
+  // martillo en la mano derecha
+  const hm = new THREE.Group();
+  const fiber = new THREE.MeshPhysicalMaterial({ color: 0xf2b705, roughness: 0.35, clearcoat: 0.6 });
+  const rubber = new THREE.MeshStandardMaterial({ color: 0x1f1f22, roughness: 0.9 });
+  const forged = new THREE.MeshPhysicalMaterial({ color: 0x7d838c, metalness: 0.9, roughness: 0.32 });
+  const polished = new THREE.MeshPhysicalMaterial({ color: 0xd9dde2, metalness: 1, roughness: 0.12 });
+  const v2 = pts => pts.map(([r, y]) => new THREE.Vector2(r, y));
+  hm.add(new THREE.Mesh(new THREE.LatheGeometry(v2([[0, -0.08], [0.036, -0.08], [0.04, -0.06], [0.036, 0.05], [0.03, 0.2], [0.026, 0.38], [0.028, 0.47], [0, 0.47]]), 24), fiber));
+  hm.add(new THREE.Mesh(new THREE.LatheGeometry(v2([[0, -0.085], [0.043, -0.085], [0.047, -0.06], [0.042, -0.02], [0.045, 0.03], [0.041, 0.08], [0.044, 0.13], [0.034, 0.17], [0, 0.17]]), 24), rubber));
+  for (let i = 0; i < 4; i++) { const rg = new THREE.Mesh(new THREE.TorusGeometry(0.044, 0.006, 6, 24), rubber); rg.rotation.x = Math.PI / 2; rg.position.y = -0.04 + i * 0.05; hm.add(rg); }
+  const head = new THREE.Group(); head.position.y = 0.5; hm.add(head);
+  head.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.075), forged));
+  const strike = new THREE.Mesh(new THREE.LatheGeometry(v2([[0, 0], [0.04, 0], [0.034, 0.02], [0.036, 0.06], [0.05, 0.1], [0.054, 0.15], [0.05, 0.165], [0, 0.165]]), 32), forged); strike.rotation.z = -Math.PI / 2; strike.position.x = 0.04; head.add(strike);
+  const fc = new THREE.Mesh(new THREE.CircleGeometry(0.05, 32), polished); fc.rotation.y = Math.PI / 2; fc.position.x = 0.206; head.add(fc);
+  const cs = new THREE.Shape(); cs.moveTo(-0.045, 0.05); cs.quadraticCurveTo(-0.17, 0.05, -0.27, -0.075); cs.lineTo(-0.255, -0.09); cs.quadraticCurveTo(-0.16, -0.02, -0.045, -0.03); cs.closePath();
+  const cg = new THREE.ExtrudeGeometry(cs, { depth: 0.026, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelSegments: 2, curveSegments: 16 });
+  [-1, 1].forEach(sz => { const c = new THREE.Mesh(cg, forged); c.position.z = sz > 0 ? 0.008 : -0.034; head.add(c); });
+  const wedge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.04), polished); wedge.position.y = 0.057; head.add(wedge);
+  hm.scale.setScalar(1.1); hm.position.set(0.04, -0.02, 0.1); hm.rotation.set(0, -0.4, -0.25);
+
+  // cinturón de herramientas
+  const belt = new THREE.Group();
+  const leather = new THREE.MeshStandardMaterial({ color: 0x8a5a2e, roughness: 0.7, side: THREE.DoubleSide }), dark = kit.felt(0x5e3c1e);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.935, 0.83, 0.18, 72, 1, true), leather); band.position.y = -0.48; belt.add(band);
+  const buckle = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.016, 8, 4), steel); buckle.rotation.z = Math.PI / 4; buckle.scale.y = 0.8;
+  const bk = new THREE.Group(); bk.add(buckle); bk.position.set(0, -0.48, 0.895); bk.rotation.x = -0.55; belt.add(bk);
+  const pouch = (ang, w, tool) => { const p = new THREE.Group(); p.position.set(Math.sin(ang) * 0.86, -0.6, Math.cos(ang) * 0.86); p.rotation.set(-0.45, ang, 0);
+    p.add(new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, 0.09), dark));
+    const flap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, 0.05, 0.1), leather); flap.position.y = 0.09; p.add(flap);
+    if (tool) p.add(tool); belt.add(p); };
+  const screw = new THREE.Group(); const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.12, 12), kit.felt(0xe8463c)); sh.position.y = 0.16; screw.add(sh);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.1, 6), steel); tip.position.y = 0.06; screw.add(tip); screw.position.x = -0.03;
+  const wr = new THREE.Group(); const wb = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.015), steel); wb.position.y = 0.12; wr.add(wb);
+  const wh = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.014, 8, 16, Math.PI * 1.5), steel); wh.position.y = 0.25; wh.rotation.z = -Math.PI * 0.25; wr.add(wh); wr.position.x = 0.03; wr.rotation.z = -0.15;
+  pouch(0.75, 0.17, screw); pouch(-0.75, 0.17, wr); pouch(1.45, 0.14);
+
+  return blank({ group: g, props: [hm], extras: [belt], parts: { hammer: hm, belt },
+    update(st) {
+      hm.rotation.z = -0.25 + (st.busy ? Math.max(0, Math.sin(st.T * 9)) * 0.9 : 0.06 * Math.sin(st.T * 1.5));
+      belt.scale.setScalar(Math.max(0.001, st.hw));
+    } });
+}
+
+function buildPhones(kit) {
+  const g = new THREE.Group();
+  const dark = new THREE.MeshPhysicalMaterial({ color: 0x24242a, roughness: 0.4, clearcoat: 0.5 }), pad = kit.felt(0x3a3a42);
+  const glow = new THREE.MeshStandardMaterial({ color: 0xff6b4a, emissive: 0xff6b4a, emissiveIntensity: 0.7 });
+  g.add(new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.055, 16, 64, Math.PI), dark));
+  [-1, 1].forEach(s => {
+    const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 40), dark); cup.rotation.z = Math.PI / 2; cup.position.x = s * 1.1; g.add(cup);
+    const cush = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.07, 12, 32), pad); cush.rotation.y = Math.PI / 2; cush.position.x = s * 0.99; g.add(cush);
+    const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.02, 32), glow); dot.rotation.z = Math.PI / 2; dot.position.x = s * 1.205; g.add(dot);
+  });
+  g.rotation.x = -0.22;
+  return blank({ group: g, parts: { glow },
+    update(st) { glow.emissiveIntensity = 0.5 + 0.5 * Math.abs(Math.sin(st.T * Math.PI * (st.busy ? 4 : 2))); } });
+}
+
 const DEFS = [
   { key: 'none', label: 'Ninguno', emoji: '🚫', build: () => null },
   { key: 'santa', label: 'Navidad', emoji: '🎅', build: buildSanta },
@@ -135,6 +296,9 @@ const DEFS = [
   { key: 'witch', label: 'Bruja', emoji: '🧙‍♀️', build: buildWitch },
   { key: 'party', label: 'Fiesta', emoji: '🥳', build: buildParty },
   { key: 'cowboy', label: 'Vaquero', emoji: '🤠', build: buildCowboy },
+  { key: 'astro', label: 'Astronauta', emoji: '🧑‍🚀', build: buildAstro },
+  { key: 'hardhat', label: 'Casco de obra', emoji: '👷', build: buildHardhat },
+  { key: 'phones', label: 'Audífonos', emoji: '🎧', build: buildPhones },
 ];
 
 export const ACCESSORY_LIST = DEFS.map(({ key, label, emoji }) => ({ key, label, emoji }));

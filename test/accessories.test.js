@@ -17,6 +17,7 @@ test('el registro tiene claves, nombres y emojis únicos y empieza por «Ninguno
   const { ACCESSORY_LIST, isAccessory } = await load();
   const { OUTFIT_KEYS } = await import('../renderer/outfits.js');
   assert.equal(ACCESSORY_LIST[0].key, 'none');
+  assert.ok(ACCESSORY_LIST.length >= 10, 'astronauta, casco de obra y audífonos');
   for (const f of ['key', 'label', 'emoji']) assert.equal(new Set(ACCESSORY_LIST.map(a => a[f])).size, ACCESSORY_LIST.length, f);
   for (const a of ACCESSORY_LIST) assert.ok(OUTFIT_KEYS.includes(a.key), a.key);
   assert.equal(isAccessory('santa'), true);
