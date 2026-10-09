@@ -9,7 +9,7 @@ async function fakeKit() {
   const THREE = await three();
   const bot = new THREE.Group(), accRoot = new THREE.Group(), hands = [new THREE.Group(), new THREE.Group()];
   return { THREE, bot, accRoot, hands, face: new THREE.Group(), scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(),
-    bodyMaterial: new THREE.MeshStandardMaterial(), sway: [], agents: () => [],
+    bodyMaterial: new THREE.MeshStandardMaterial(), eyeMaterial: new THREE.MeshStandardMaterial(), sway: [], agents: () => [],
     onSurface: o => { bot.add(o); return o; }, felt: c => new THREE.MeshStandardMaterial({ color: c }) };
 }
 
@@ -99,4 +99,25 @@ test('la copia para las gotas de atrás sale limpia aunque el diseño esté a mi
   accs.miniCopy('magic').traverse(o => { if (o.isMesh && o.geometry === magic.parts.pop.geometry && o.visible) popVisible = true; });
   assert.equal(popVisible, false, 'la copia no la lleva');
   assert.equal(accs.miniCopy('none'), null);
+});
+
+test('el gato mueve las orejas y la cola de vez en cuando, y más si lo acarician', async () => {
+  const { createAccessories } = await load();
+  const accs = createAccessories(await fakeKit());
+  const cat = accs.get('cat');
+  const { ears, tail } = cat.parts;
+  const restZ = ears.map(e => e.rotation.z);
+  const st = (T, extra = {}) => ({ T, dt: 1 / 30, busy: false, awake: true, acting: false, hands: [], hw: 1, helpers: [],
+    spring: { ax: 0, az: 0 }, look: {}, setLook() {}, petting: false, hover: false, ...extra });
+  let twitches = 0, quiet = 0, swish = 0, calm = 0;
+  for (let i = 0; i < 30 * 20; i++) {
+    cat.update(st(i / 30));
+    const moved = Math.max(...ears.map((e, k) => Math.abs(e.rotation.z - restZ[k])));
+    if (moved > 0.15) twitches++; else quiet++;
+    if (Math.abs(tail.rotation.y) > 0.4) swish++; else calm++;
+  }
+  assert.ok(twitches > 0 && quiet > twitches * 4, `orejas: ${twitches} fotogramas moviéndose, ${quiet} quietas`);
+  assert.ok(swish > 0 && calm > swish * 2, `cola: ${swish} fotogramas meneándose, ${calm} tranquila`);
+  cat.update(st(30, { petting: true }));
+  assert.ok(ears.every(e => e.rotation.x < -0.2), 'con mimos, las orejas se echan hacia atrás');
 });

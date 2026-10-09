@@ -155,7 +155,7 @@ export function createGota(host, opts = {}) {
   // ---------- accesorios (renderer/accessories.js) ----------
   const accRoot = new THREE.Group(); bot.add(accRoot);
   const sway = [];
-  const kit = { THREE, bot, accRoot, hands, face, onSurface, sway, scene, camera, bodyMaterial: mShell,
+  const kit = { THREE, bot, accRoot, hands, face, onSurface, sway, scene, camera, bodyMaterial: mShell, eyeMaterial: mGlow,
     felt: c => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 }), agents: () => agents };
   const accs = createAccessories(kit);
   const fx = createFx(THREE, scene);
@@ -283,7 +283,7 @@ export function createGota(host, opts = {}) {
   function accState(dt) {
     return { T, dt, busy: !!busyOf.get(activeId) || appBusy, awake: mode === 'awake', acting: !!action,
       hands, hw: hands[1].scale.x, helpers: agents.filter(a => a.sid === activeId && a.status === 'working' && !a.gone),
-      spring, look, setLook: v => { accLook = v; } };
+      spring, look, setLook: v => { accLook = v; }, petting, hover, say };
   }
   function setMode(m) { mode = m; modeT = 0; onModeChange(m); }
   const isLive = () => mode === 'awake' || mode === 'sleep';
