@@ -87,3 +87,14 @@ test('seasonSuggestion: fantasma del 15 al 31 de octubre, Navidad en diciembre',
   assert.equal(seasonSuggestion(new Date(2026, 11, 3), 'none', id => id === '2026-santa'), null, 'rechazada este año');
   assert.equal(seasonSuggestion(new Date(2026, 6, 1), 'none', never), null);
 });
+
+test('outfitRequest no se traga peticiones de trabajo que nombran un disfraz', async () => {
+  const { outfitRequest } = await load();
+  for (const q of ['usa ninja para compilar', 'usa vite en vez de ninja', 'usa el patrón detective', 'usa el comando de fiesta',
+    'usa fiesta.js', 'usa santander', 'ponte de acuerdo con el chef', 'ponte las pilas con el chef', 'ponte guapo para la fiesta',
+    'quítate el sombrero de pirata y revisa el bug']) {
+    assert.equal(outfitRequest(q), null, q);
+  }
+  assert.equal(outfitRequest('quítate el sombrero de pirata'), 'none');
+  assert.equal(outfitRequest('Astro, ponte el gorro de chef'), 'chef');
+});

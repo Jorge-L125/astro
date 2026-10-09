@@ -49,25 +49,25 @@ export function loadOutfitPrefs(raw, legacy) {
 }
 export const saveOutfitPrefs = prefs => JSON.stringify(prefs);
 
-// «ponte / vístete / disfrázate (de) … <traje>». Hace falta el verbo de vestir y nada que sugiera
-// otra cosa ("ponte a revisar…").
-const WEAR = /^(?:¡\s*)?(?:astro,?\s*)?(?:ponte|vístete|vistete|disfrázate|disfrazate|usa)\b/;
-const OFF = /^(?:¡\s*)?(?:astro,?\s*)?(?:quítate|quitate)\s+(?:el|la|los|las)\s+(?:sombrero|gorro|casco|disfraz|traje|accesorio|audífonos|audifonos)\b/;
-const WORDS = [
-  ['astro', /astronauta|espacial/], ['hardhat', /casco de obra|obrero|constructor/], ['phones', /aud[ií]fonos|cascos de m[uú]sica/],
-  ['ninja', /ninja/], ['magic', /mago/], ['pirate', /pirata/], ['detective', /detective/], ['viking', /vikingo/], ['chef', /chef|cocinero/],
-  ['santa', /navidad|santa|pap[aá] noel/], ['ghost', /fantasma/], ['vampire', /vampiro/], ['witch', /bruja/], ['party', /fiesta|cumplea/],
-  ['cowboy', /vaquero|cowboy/],
-];
+// «ponte / vístete / disfrázate [el sombrero] [de] <traje>» y «quítate el sombrero». La frase entera tiene
+// que ser eso: «usa ninja para compilar» o «ponte de acuerdo con el chef» son tareas y van a Claude.
+const NAMES = {
+  astronauta: 'astro', obra: 'hardhat', obrero: 'hardhat', 'audífonos': 'phones', audifonos: 'phones', ninja: 'ninja',
+  mago: 'magic', pirata: 'pirate', detective: 'detective', vikingo: 'viking', chef: 'chef', cocinero: 'chef',
+  navidad: 'santa', santa: 'santa', 'papá noel': 'santa', 'papa noel': 'santa', fantasma: 'ghost', vampiro: 'vampire',
+  bruja: 'witch', fiesta: 'party', 'cumpleaños': 'party', vaquero: 'cowboy', cowboy: 'cowboy',
+};
+const ART = '(?:(?:el|la|los|las|tu|tus|un|una)\\s+)?';
+const GARMENT = '(?:sombrero|gorro|gorrito|casco|traje|disfraz|manta|capa|cascos|accesorio|audífonos|audifonos)';
+const NAME = '(' + Object.keys(NAMES).sort((x, y) => y.length - x.length).join('|') + ')';
+const LEAD = '^(?:astro,?\\s*)?';
+const WEAR = new RegExp(LEAD + '(?:ponte|vístete|vistete|disfrázate|disfrazate)\\s+' + ART + '(?:' + GARMENT + '\\s+)?(?:de\\s+)?' + ART + NAME + '$');
+const OFF = new RegExp(LEAD + '(?:quítate|quitate)\\s+' + ART + GARMENT + '(?:\\s+de\\s+' + ART + NAME + ')?$');
 export function outfitRequest(text) {
-  const t = String(text || '').trim().toLowerCase().replace(/[!.?¿]+$/g, '');
+  const t = String(text || '').trim().toLowerCase().replace(/^[¡¿]+/, '').replace(/[!.?]+$/, '').replace(/\s+/g, ' ');
   if (OFF.test(t)) return 'none';
-  if (!WEAR.test(t)) return null;
-  const rest = t.replace(WEAR, '').trim();
-  if (/^a\s/.test(rest)) return null;
-  if (rest.split(/\s+/).length > 6) return null; // una frase larga es una tarea, no un disfraz
-  const hit = WORDS.find(([, re]) => re.test(rest));
-  return hit ? hit[0] : null;
+  const m = WEAR.exec(t);
+  return m ? NAMES[m[1]] : null;
 }
 
 const SEASONS = [

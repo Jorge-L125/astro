@@ -638,6 +638,8 @@ export function createAccessories(kit, extraDefs = []) {
     if (d && key !== 'none') {
       try {
         b = d.build(kit);
+        // plantilla en reposo para las gotas de atrás: copiar el grupo vivo se llevaría un gesto a medias
+        b.template = b.group.clone();
         kit.accRoot.add(b.group);
         b.props.forEach(p => kit.hands[1].add(p));
         b.extras.forEach(e => kit.bot.add(e));
@@ -647,5 +649,7 @@ export function createAccessories(kit, extraDefs = []) {
     cache.set(key, b);
     return b;
   }
-  return { get, def };
+  /** Copia del diseño en reposo para una gota de atrás (comparte formas y materiales). */
+  const miniCopy = key => { const b = get(key); if (!b) return null; const c = b.template.clone(); c.visible = true; return c; };
+  return { get, def, miniCopy };
 }

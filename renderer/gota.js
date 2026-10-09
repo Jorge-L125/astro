@@ -319,8 +319,7 @@ export function createGota(host, opts = {}) {
     mv.acc = isAccessory(key) ? key : 'none';
     const b = accs.get(mv.acc);
     if (b) {
-      mv.accObj = b.group.clone();
-      mv.accObj.visible = true;
+      mv.accObj = accs.miniCopy(mv.acc);
       mv.g.add(mv.accObj);
     }
     const lift = b ? b.faceLift : 1;

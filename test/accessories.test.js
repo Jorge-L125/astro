@@ -83,3 +83,20 @@ test('las reacciones usan lo que les pasa la gota', async () => {
     if (d.react.on && key !== 'magic') assert.ok(calls.length, key + ' hace algún gesto al ponérselo');
   }
 });
+
+test('la copia para las gotas de atrás sale limpia aunque el diseño esté a mitad de un gesto', async () => {
+  const { createAccessories } = await load();
+  const accs = createAccessories(await fakeKit());
+  const st = T => ({ T, dt: 0.016, busy: false, awake: true, acting: false, hands: [], hw: 1, helpers: [], spring: { ax: 0, az: 0 }, look: {}, setLook() {} });
+  const vamp = accs.get('vampire');
+  vamp.flap(0); vamp.update(st(0.4));
+  assert.ok(vamp.group.scale.x > 1.05, 'la capa está abierta');
+  assert.equal(accs.miniCopy('vampire').scale.x, 1, 'la copia, cerrada');
+  const magic = accs.get('magic');
+  magic.popOut(0); magic.update(st(0.9));
+  assert.ok(magic.parts.pop.visible, 'la mini-gota del mago asoma');
+  let popVisible = false;
+  accs.miniCopy('magic').traverse(o => { if (o.isMesh && o.geometry === magic.parts.pop.geometry && o.visible) popVisible = true; });
+  assert.equal(popVisible, false, 'la copia no la lleva');
+  assert.equal(accs.miniCopy('none'), null);
+});
