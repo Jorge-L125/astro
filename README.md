@@ -60,7 +60,13 @@ En la versión instalada:
 - **Avisos:** el comando del hook se copia desde la bandeja con *Copiar comando de avisos (hooks)*; pégalo en `~/.claude/settings.json` como se explica en [Avisos de tareas terminadas](#avisos-de-tareas-terminadas).
 - **Firma:** el instalador no está firmado, así que la primera vez Windows SmartScreen avisa de que es de un editor desconocido (*Más información → Ejecutar de todas formas*). Para quitar el aviso hace falta firmarlo con un certificado de firma de código.
 
-Para publicar una versión nueva, sube el número de `version` en `package.json` y vuelve a compilar.
+- **Actualizaciones:** desde la 0.7.0, Astro busca versiones nuevas en las releases de GitHub al arrancar y cada 6 horas. Si hay una, la descarga en segundo plano y te pregunta con una nube si reinicia ahora; si eliges *Más tarde*, se instala sola al cerrar Astro. Se apaga en *Ajustes → Buscar actualizaciones* y se puede forzar desde la bandeja con *Buscar actualizaciones ahora*. Solo en Windows: en macOS la app tendría que estar firmada con una cuenta de desarrollador de Apple.
+
+Para publicar una versión nueva:
+
+1. Sube el número de `version` en `package.json` y compila con `pnpm dist`.
+2. Crea la release en GitHub con **tres** archivos de `dist/`: `Astro-Setup-<versión>.exe`, `Astro-Setup-<versión>.exe.blockmap` y `latest.yml`. Sin `latest.yml` las copias instaladas no ven la versión nueva; con el `.blockmap` solo descargan lo que cambió.
+3. Las versiones de prueba se publican como *prerelease*: el actualizador las ignora.
 
 ## Carpeta de trabajo
 
@@ -112,7 +118,7 @@ Astro detecta las capturas por dos vías: la carpeta donde el sistema las guarda
 Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
 
 - **Color de esta sesión**, **posición** (izquierda o derecha) y **tema** (automático, claro u oscuro).
-- **Accesorio (diseño):** 16 a elegir — Navidad, fantasma, vampiro, bruja, fiesta, vaquero, astronauta, casco de obra, audífonos, ninja, mago, pirata, detective, vikingo y chef. Cada uno tiene sus animaciones: al ponérselo, un gesto propio de vez en cuando en reposo (confeti, humo ninja, «¡Tierra a la vista!»…), otra mientras trabaja (el martillo golpea, la olla del chef hierve, los ayudantes del vikingo llevan escudo) y una frase al terminar los ayudantes.
+- **Accesorio (diseño):** 17 a elegir — Navidad, fantasma, vampiro, bruja, fiesta, vaquero, astronauta, casco de obra, audífonos, ninja, mago, pirata, detective, vikingo, chef y gato (que mueve las orejas y la cola de vez en cuando, y ronronea si lo acaricias; sus ayudantes son ovillos de lana). Cada uno tiene sus animaciones: al ponérselo, un gesto propio de vez en cuando en reposo (confeti, humo ninja, «¡Tierra a la vista!»…), otra mientras trabaja (el martillo golpea, la olla del chef hierve, los ayudantes del vikingo llevan escudo) y una frase al terminar los ayudantes.
   - **Por proyecto** (por defecto): cada carpeta de trabajo recuerda su diseño; las sesiones abiertas en la misma carpeta lo comparten. **Siempre el mismo** pone el mismo a todas.
   - Las sesiones de atrás conservan su diseño (en pequeño) y lo recuperan al volver al frente.
   - También se cambia hablándole: «ponte el sombrero de pirata», «vístete de chef», «quítate el sombrero». Lo hace Astro, sin llamar a Claude.
@@ -209,7 +215,8 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.
 - `src/commands.js` + `renderer/slash.js` — comandos / (qué se muestra, menú y respuestas).
 - `src/captures.js` + `src/screenshot-dir.js` — detección de capturas de pantalla (carpeta del sistema y portapapeles).
-- `src/prefs.js` — preferencias que se cambian desde la app (siempre encima, detectar capturas).
+- `src/prefs.js` — preferencias que se cambian desde la app (siempre encima, detectar capturas, buscar actualizaciones).
+- `src/updater.js` — actualizaciones automáticas desde las releases de GitHub (Windows).
 - `src/notify-server.js` + `src/runtime-info.js` + `hooks/astro-notify.js` — avisos de otras sesiones.
 - `src/icon.js` — icono de la bandeja, generado sin archivos.
 - `renderer/gota.js` — el personaje 3D.

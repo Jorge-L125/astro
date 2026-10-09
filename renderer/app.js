@@ -1405,6 +1405,20 @@ api.on('astro:summon', () => {
 });
 api.on('astro:minimize', () => gota.minimize());
 api.on('astro:welcome-back', () => gota.welcomeBack());
+// Actualizaciones: versión nueva descargada (preguntar si reinicia), ya al día o error al buscar a mano.
+let updateCloud = null;
+api.on('astro:update', u => {
+  if (u.latest) { quip('Ya tienes la última versión de Astro.'); return; }
+  if (u.error) { quip('No pude buscar actualizaciones ahora. Lo intento más tarde.'); return; }
+  if (!u.ready) return;
+  if (updateCloud) updateCloud.remove();
+  const c = updateCloud = cloud(active, 'capture');
+  c.innerHTML = '<p></p><div class="row"><button class="btn use">Reiniciar y actualizar</button><button class="opt drop">Más tarde</button></div>';
+  c.querySelector('p').textContent = `Hay una versión nueva de Astro (${u.version}). Ya está descargada.`;
+  c.querySelector('.use').onclick = () => { c.querySelector('p').textContent = 'Actualizando… vuelvo en un momento.'; api.installUpdate(); };
+  c.querySelector('.drop').onclick = () => { c.remove(); updateCloud = null; quip('Vale: se instalará cuando cierres Astro.'); };
+  gota.wake(); gota.react('surprised', 900); gota.act('hop');
+});
 api.on('astro:new', () => newSession());
 api.on('astro:reset', () => confirmReset(active));
 api.on('astro:resume', () => (gota.isMinimized() ? restoreThen(openResume) : openResume()));
@@ -1424,6 +1438,7 @@ api.config().then(async c => {
   toolsAllowed = c.allowedTools || [];
   renderTools();
   isWin = c.platform === 'win32';
+  $('tUpdates').hidden = !c.updates; // solo donde Astro puede actualizarse solo
   recentFolders = (await api.checkFolders(recentFolders).catch(() => recentFolders)).filter(d => !sameDir(d, defaultFolder));
   // Si `astro` ya colocó la sesión en una carpeta mientras arrancaba, se respeta.
   for (const s of sessions) if (!s.folder) s.folder = s === active && c.launchDir ? c.launchDir : defaultFolder;

@@ -68,7 +68,7 @@ test('outfitRequest reconoce «ponte…» y no se confunde con otras frases', as
     ['ponte el gorro de Navidad', 'santa'], ['ponte los audífonos', 'phones'], ['quítate el sombrero', 'none'],
     ['ponte el casco de astronauta', 'astro'], ['ponte el casco de obra', 'hardhat'], ['vístete de vikingo', 'viking'],
     ['ponte de detective', 'detective'], ['disfrázate de mago', 'magic'], ['ponte el traje ninja', 'ninja'],
-    ['vístete de vampiro', 'vampire'], ['ponte el sombrero de bruja', 'witch'], ['ponte el gorro de fiesta', 'party'], ['ponte el sombrero de vaquero', 'cowboy']]) {
+    ['vístete de vampiro', 'vampire'], ['ponte el sombrero de bruja', 'witch'], ['ponte el gorro de fiesta', 'party'], ['ponte el sombrero de vaquero', 'cowboy'], ['vístete de gato', 'cat'], ['ponte el traje de gatito', 'cat']]) {
     assert.equal(outfitRequest(q), k, q);
   }
   for (const q of ['Haz un pirata en CSS', 'el detective de la novela usa lupa', 'ponte a revisar el chef.js', 'quítate de en medio', '']) {

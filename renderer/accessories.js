@@ -34,7 +34,7 @@ export function bentHat(kit, mat, segs) {
   return { root: r, tip: parent };
 }
 
-const blank = over => ({ props: [], face: [], extras: [], handMaterial: null, eyesDark: false, faceLift: 1, parts: {}, ...over });
+const blank = over => ({ props: [], leftProps: [], face: [], extras: [], handMaterial: null, eyesDark: false, faceLift: 1, parts: {}, ...over });
 
 function buildSanta(kit) {
   const m = mats(kit), g = new THREE.Group();
@@ -531,6 +531,100 @@ function buildChef() {
     hide() { parts.potK = 0; pot.visible = false; } });
 }
 
+// Ovillo de lana sobre un ayudante (diseño de gato): hebras del color del ayudante y una hebra suelta.
+let YARN = null;
+function addYarn(a) {
+  if (!YARN) {
+    YARN = { ring: new THREE.TorusGeometry(0.128, 0.011, 6, 40), rot: [] };
+    for (let i = 0; i < 9; i++) YARN.rot.push([Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI]);
+    YARN.loose = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([[0.1, -0.08, 0.05], [0.2, -0.13, 0.08], [0.27, -0.1, 0.02], [0.33, -0.16, 0]].map(q => new THREE.Vector3(...q))), 16, 0.009, 5);
+  }
+  const g = new THREE.Group();
+  for (const r of YARN.rot) { const m = new THREE.Mesh(YARN.ring, a.mat); m.rotation.set(...r); g.add(m); }
+  g.add(new THREE.Mesh(YARN.loose, a.mat));
+  a.m.add(g); a.yarn = g;
+}
+
+function buildCat(kit) {
+  const tex = canvasTex(512, 256, x => {
+    x.fillStyle = '#f0a457'; x.fillRect(0, 0, 512, 256); x.fillStyle = '#c9732f';
+    for (let i = 0; i < 14; i++) { const cx = i / 14 * 512 + 18, len = 70 + (i % 3) * 22; x.beginPath(); x.moveTo(cx - 9, 0); x.quadraticCurveTo(cx + 10, len * 0.5, cx, len); x.quadraticCurveTo(cx - 2, len * 0.5, cx + 9, 0); x.fill(); }
+  });
+  if (tex) { tex.colorSpace = THREE.SRGBColorSpace; tex.wrapS = THREE.RepeatWrapping; }
+  const striped = new THREE.MeshStandardMaterial({ color: tex ? 0xffffff : 0xf0a457, map: tex, roughness: 0.88 });
+  const fur = new THREE.MeshStandardMaterial({ color: 0xf0a457, roughness: 0.88 });
+  const cream = new THREE.MeshStandardMaterial({ color: 0xfbefdc, roughness: 0.9 });
+  const pad = new THREE.MeshStandardMaterial({ color: 0xf4a6b8, roughness: 0.6 });
+
+  // capucha a rayas con borde crema y orejas
+  const g = new THREE.Group();
+  const W = [0.66, 0.46, -0.04, 2.4], RH = 1.045;
+  const [hoodG] = splitSphere(RH, ellipseWin(...W)); g.add(new THREE.Mesh(hoodG, striped));
+  g.add(rimTube(RH, W[0], W[1], W[2], 0.05, cream, W[3]));
+  const ears = [-1, 1].map(s => {
+    const e = new THREE.Group(); e.position.set(s * 0.58, 0.7, 0.04); e.rotation.set(-0.12, 0, -s * 0.38);
+    const outer = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.52, 3, 1), fur); outer.scale.z = 0.45; outer.position.y = 0.2; e.add(outer);
+    const inner = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.34, 3, 1), pad); inner.scale.z = 0.3; inner.position.set(0, 0.16, 0.05); e.add(inner);
+    g.add(e); return e;
+  });
+
+  // almohadillas en las dos manos
+  const paw = () => {
+    const grp = new THREE.Group();
+    const main = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 10), pad); main.scale.set(1.2, 0.9, 0.4); main.position.set(0, -0.03, 0.16); grp.add(main);
+    [-1, 0, 1].forEach(k => { const t = new THREE.Mesh(new THREE.SphereGeometry(0.026, 12, 8), pad); t.scale.z = 0.5; t.position.set(k * 0.055, 0.06 - Math.abs(k) * 0.015, 0.155 - Math.abs(k) * 0.012); grp.add(t); });
+    return grp;
+  };
+
+  // nariz y bigotes (del color de los ojos)
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.045, 3), new THREE.MeshStandardMaterial({ color: 0xf48aa6, roughness: 0.4 }));
+  nose.rotation.z = Math.PI; nose.scale.z = 0.4;
+  const face = [kit.onSurface(nose, 0, -0.12, 0.01)];
+  const wG = new THREE.BoxGeometry(0.3, 0.01, 0.006); wG.translate(0.15, 0, 0);
+  [-1, 1].forEach(s => {
+    const grp = new THREE.Group();
+    [-0.18, 0, 0.18].forEach(a => { const w = new THREE.Mesh(wG, kit.eyeMaterial); w.rotation.z = s > 0 ? a : Math.PI - a; grp.add(w); });
+    face.push(kit.onSurface(grp, s * 0.42, -0.16, 0.01));
+  });
+
+  // cola
+  const tail = new THREE.Group(); tail.position.set(0.15, -0.65, -0.78);
+  const curve = new THREE.CatmullRomCurve3([[0, 0, 0], [0.2, -0.05, -0.25], [0.45, 0.15, -0.35], [0.55, 0.5, -0.3], [0.45, 0.75, -0.25]].map(q => new THREE.Vector3(...q)));
+  const TS = 40, RS = 12, tg = new THREE.TubeGeometry(curve, TS, 0.085, RS, false), p = tg.attributes.position, c = new THREE.Vector3();
+  for (let i = 0; i <= TS; i++) { curve.getPointAt(i / TS, c); const k = 1 - 0.35 * (i / TS); for (let j = 0; j <= RS; j++) { const n = i * (RS + 1) + j; p.setXYZ(n, c.x + (p.getX(n) - c.x) * k, c.y + (p.getY(n) - c.y) * k, c.z + (p.getZ(n) - c.z) * k); } }
+  tg.computeVertexNormals(); tail.add(new THREE.Mesh(tg, fur));
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.058, 16, 10), cream); tip.position.copy(curve.getPointAt(1)); tip.scale.y = 1.4; tail.add(tip);
+
+  // De vez en cuando: una oreja da un respingo (cada 2,5–6,5 s) y la cola da un meneo (cada 4–9 s).
+  // El resto del tiempo la cola apenas se balancea. Con mimos, orejas atrás y cola contenta.
+  const parts = { ears, tail, nextTwitch: 1.5, twitchT: -9, twitchEar: 1, nextSwish: 3, swishT: -9, nextPurr: 0 };
+  return blank({ group: g, props: [paw()], leftProps: [paw()], face, extras: [tail], handMaterial: [fur, fur], parts,
+    twitch(T) { parts.twitchT = T; parts.twitchEar = 1 - parts.twitchEar; },
+    update(st) {
+      if (st.T > parts.nextTwitch) { parts.nextTwitch = st.T + 2.5 + Math.random() * 4; parts.twitchT = st.T; parts.twitchEar = Math.random() < 0.5 ? 0 : 1; }
+      if (st.T > parts.nextSwish) { parts.nextSwish = st.T + 4 + Math.random() * 5; parts.swishT = st.T; }
+      const tw = bump(st.T - parts.twitchT, 0, 0.35);
+      ears.forEach((e, i) => {
+        const s = i ? 1 : -1;
+        e.rotation.z = -s * 0.38 - s * (i === parts.twitchEar ? tw * 0.35 : 0) + (st.petting ? s * 0.25 : 0);
+        e.rotation.x = -0.12 - (st.petting ? 0.25 : 0);
+      });
+      const sw = bump(st.T - parts.swishT, 0, 1.2), sp = st.petting ? 6 : st.hover ? 3.5 : 2.2;
+      const amp = st.petting ? 0.45 : 0.06 + 0.5 * sw;
+      tail.rotation.set(0.08 * Math.sin(st.T * sp * 0.7) * (amp / 0.45), amp * Math.sin(st.T * (sw > 0 ? 7 : sp)), 0.15 * Math.sin(st.T * sp + 1) * (amp / 0.45));
+      tail.scale.setScalar(Math.max(0.001, st.hw));
+      // los ayudantes son ovillos de lana que ruedan mientras trabajan
+      for (const h of st.helpers) {
+        if (!h.yarn) addYarn(h);
+        h.yarn.visible = true;
+        h.yarn.rotation.set(st.T * 1.3 + h.id, st.T * 0.9, 0);
+      }
+      if (!st.petting) parts.nextPurr = Math.max(parts.nextPurr, st.T + 1.5);
+      else if (st.T > parts.nextPurr && st.say) { parts.nextPurr = st.T + 4; st.say(Math.random() < 0.5 ? 'Purrr… purrr…' : 'Prrrr… justo ahí.'); }
+    },
+    hide() { parts.twitchT = -9; parts.swishT = -9; for (const h of kit.agents()) if (h.yarn) h.yarn.visible = false; } });
+}
+
 // «1 tarea terminada» / «3 tareas terminadas»; fijo: el verbo no concuerda en número («al punto»).
 const tareas = (n, verbo = 'terminada', fijo = false) => (fijo ? (n === 1 ? '1 tarea' : `${n} tareas`) + ' ' + verbo
   : n === 1 ? `1 tarea ${verbo}` : `${n} tareas ${verbo}s`);
@@ -616,6 +710,11 @@ const DEFS = [
       idle: m => { m.play('nod'); m.say('Mmm… le falta una pizca de sal.'); },
       done: m => { m.play('jump'); m.setExpr('joy', 1.4); } },
     doneLine: n => `¡Listo para servir! ${tareas(n, 'al punto', true)}.` },
+  { key: 'cat', label: 'Gato', emoji: '🐱', build: buildCat,
+    react: { on: m => { m.play('spin'); m.setExpr('joy', 1.4); m.built.twitch(m.T + 0.4); m.say(m.pick(['¡Miau! Acaricia mi cabeza.', 'Miau… ¿tienes un bug para cazar?'])); },
+      idle: m => { m.built.twitch(m.T); m.play('giggle'); m.say(m.pick(['Miau.', 'Mrrr… ¿jugamos?'])); },
+      done: m => { m.play('jump'); m.setExpr('joy', 1.4); } },
+    doneLine: n => `¡Bug cazado! ${tareas(n)}.` },
 ];
 
 export const ACCESSORY_LIST = DEFS.map(({ key, label, emoji }) => ({ key, label, emoji }));
@@ -624,7 +723,7 @@ export const isAccessory = k => DEFS.some(d => d.key === k);
 /** Muestra u oculta todas las piezas de un diseño construido. */
 export function showBuilt(b, on) {
   if (!b) return;
-  for (const o of [b.group, ...b.props, ...b.face, ...b.extras]) o.visible = on;
+  for (const o of [b.group, ...b.props, ...b.leftProps, ...b.face, ...b.extras]) o.visible = on;
   if (!on && b.hide) b.hide();
 }
 
@@ -642,6 +741,7 @@ export function createAccessories(kit, extraDefs = []) {
         b.template = b.group.clone();
         kit.accRoot.add(b.group);
         b.props.forEach(p => kit.hands[1].add(p));
+        b.leftProps.forEach(p => kit.hands[0].add(p));
         b.extras.forEach(e => kit.bot.add(e));
         showBuilt(b, false);
       } catch (e) { console.error(`[astro] no pude construir el diseño «${key}»:`, e); b = null; }
