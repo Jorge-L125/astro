@@ -87,6 +87,14 @@ Claude solo usa sin preguntar las herramientas de `allowedTools` (por defecto, l
 - **No, gracias:** no cambia nada.
 - **Quitar un permiso:** en Ajustes → *Claude puede usar sin preguntar*, pulsa la × de la herramienta.
 
+## Escribir mientras trabaja
+
+Como en la terminal de Claude Code, puedes escribirle a Astro aunque esté trabajando: abre la pregunta (clic en Astro o el atajo) y envía. El mensaje sale marcado *En cola* y Claude lo incorpora a la tarea en cuanto puede; al leerlo pasa a *Leído* y la respuesta atiende a todo. Si Claude ya estaba cerrando su respuesta, Astro espera a la siguiente.
+
+- Los comandos `/`, los mensajes con una captura adjunta y lo que escribas mientras trabajan los ayudantes de Astro esperan y se envían solos al terminar, sin borrar lo que se ve.
+- Si detienes la tarea, lo que no llegó a leer queda como *No se envió* y su texto vuelve al cuadro para que no se pierda.
+- La nube donde escribes se queda siempre al final, aunque lleguen pasos o respuestas.
+
 ## Sesiones
 
 Cada sesión es una conversación independiente con Claude Code: tiene su color, sus nubes, sus ayudantes y su historial. Una sesión puede seguir trabajando mientras está detrás.

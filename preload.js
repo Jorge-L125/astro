@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('astro', {
   ask: req => ipcRenderer.invoke('claude:ask', req),
   agent: req => ipcRenderer.invoke('claude:agent', req),
   cancel: id => ipcRenderer.send('claude:cancel', id),
+  queue: req => ipcRenderer.invoke('claude:queue', req),
   endConversation: conv => ipcRenderer.send('claude:end', conv),
   prewarm: (conv, cwd) => ipcRenderer.send('claude:prewarm', { conv, cwd }),
   resumeConversation: (conv, sessionId, cwd) => ipcRenderer.send('claude:resume', { conv, sessionId, cwd }),

@@ -417,6 +417,11 @@ ipcMain.handle('claude:agent', (_e, { id, name, task, transcript, cwd: dir }) =>
   return toReply(track(id, handle).finally(() => s.close()), r => ({ text: r.text }));
 });
 
+// Otro mensaje mientras Claude trabaja: se le escribe al mismo proceso y lo incorpora a la tarea.
+ipcMain.handle('claude:queue', (_e, { conv, id, text }) => {
+  const s = conversations.get(conv);
+  return { ok: !!(s && s.busy && s.queue(String(text || ''), String(id || ''))) };
+});
 ipcMain.on('claude:cancel', (_e, id) => {
   const cancel = running.get(id);
   if (cancel) cancel();

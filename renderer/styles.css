@@ -63,6 +63,10 @@ body.left-side .cloud{transform-origin:bottom left}
 body.left-side .cloud.tail::before{right:auto;left:22px}
 body.left-side .cloud.tail::after{right:auto;left:6px}
 .cloud.you{background:var(--accent);color:var(--on-accent);border-bottom-right-radius:8px;align-self:flex-end;max-height:9.5em;overflow-y:auto}
+/* mensaje escrito mientras trabaja: en cola hasta que Claude lo lee */
+.cloud.you .qstate{display:block;font-size:11px;font-weight:700;opacity:.8;margin-bottom:2px;letter-spacing:.02em}
+.cloud.you.queued{opacity:.72;outline:1.5px dashed color-mix(in srgb,var(--on-accent) 55%,transparent);outline-offset:-5px}
+.cloud.you.unsent{opacity:.5}
 .cloud.notify{border:2px solid var(--accent)}
 .cloud.notify strong{display:block;font-size:13px;color:var(--accent-ink)}
 .cloud.notify span{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}

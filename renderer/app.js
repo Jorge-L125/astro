@@ -50,7 +50,7 @@ function mkSession(name, color, folder = null) {
   clouds.className = 'clouds';
   watchFade(clouds);
   clouds.setAttribute('aria-live', 'polite');
-  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, folder, steps: [], stepsT0: 0, acc: outfitFor(outfitPrefs, folder) };
+  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, inflight: [], later: [], folder, steps: [], stepsT0: 0, acc: outfitFor(outfitPrefs, folder) };
 }
 const sessions = [];
 let active = mkSession('Principal', cfg.color);
@@ -232,7 +232,15 @@ addEventListener('mousemove', e => updateIgnore(e.clientX, e.clientY));
 
 /* ---------- nubes ---------- */
 let askEl = null;
-function stickToBottom(s) { s.clouds.scrollTop = s.clouds.scrollHeight; fadeEdges(s.clouds); }
+function stickToBottom(s) { keepAskLast(s); s.clouds.scrollTop = s.clouds.scrollHeight; fadeEdges(s.clouds); }
+// La nube donde se escribe va siempre al final, como la línea de la terminal, aunque lleguen respuestas.
+function keepAskLast(s) {
+  if (!askEl || askEl.parentNode !== s.clouds || s.clouds.lastElementChild === askEl) return;
+  const ta = askEl.querySelector('textarea');
+  const focused = document.activeElement === ta, a = ta.selectionStart, b = ta.selectionEnd;
+  s.clouds.append(askEl);
+  if (focused) { ta.focus(); ta.setSelectionRange(a, b); }
+}
 // Marca los bordes con más contenido detrás para desvanecerlos (ver .fade-top / .fade-bottom).
 function fadeEdges(el) {
   const top = el.scrollTop > 2;
@@ -281,7 +289,7 @@ function quip(text) {
 }
 
 function openAsk() {
-  if (active.busy || gota.isSwapping()) return;
+  if (gota.isSwapping()) return;
   if (gota.isMinimized()) { restoreThen(openAsk); return; }
   if (askEl) { renderAttachment(); askEl.querySelector('textarea').focus(); return; }
   gota.wake();
@@ -291,6 +299,7 @@ function openAsk() {
   askEl.classList.remove('old');
   askEl.innerHTML = '<textarea rows="1" aria-label="Tu pregunta" placeholder="¿En qué te ayudo?"></textarea><button class="send" aria-label="Enviar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>';
   const ta = askEl.querySelector('textarea'), b = askEl.querySelector('.send');
+  if (active.busy) ta.placeholder = 'Escríbele mientras trabaja…';
   // Mientras se escribe, Claude Code arranca (o despierta) para que la respuesta no espere al CLI.
   api.prewarm(active.id, active.folder);
   const menu = commandMenu(ta);
@@ -308,6 +317,8 @@ function openAsk() {
     const cmd = parseSlash(v);
     if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear' || cmd.name === 'historial')) { runLocal(cmd.name); return; }
     if (isCompliment(v)) gota.compliment();
+    // Con Astro trabajando, el mensaje se le pasa a Claude como en la terminal.
+    if (active.busy) { sendWhileBusy(active, v); return; }
     const cap = attached;
     attached = null; // pasa a la pregunta: ya no se descarta al cerrar
     ask(active, v, cap);
@@ -743,6 +754,7 @@ function stepsLink(s, t) {
 // Cuántos subagentes de Claude siguen trabajando, para la línea de estado.
 const subWorking = s => s.agents.filter(a => a.internal && a.status === 'working').length;
 const progressInto = (el, s) => ev => {
+  if (ev.type === 'queued-read') { queuedRead(s, ev.qid); return; }
   const st = el.querySelector('.status');
   const say = text => { if (st) st.textContent = text; };
   const find = key => s.agents.find(a => a.key === key);
@@ -910,7 +922,7 @@ addEventListener('pointerdown', e => {
   if (!$('ctxpop').hidden && !$('ctxpop').contains(e.target) && !$('ctxring').contains(e.target)) $('ctxpop').hidden = true;
 });
 
-async function ask(s, text, capture = null) {
+async function ask(s, text, capture = null, opts = {}) {
   if (s.busy) return;
   let cmd = capture ? null : parseSlash(text);
   // "¿Cuántos tokens quedan?": lo responde Astro con los datos que ya tiene, sin llamar a Claude.
@@ -925,12 +937,15 @@ async function ask(s, text, capture = null) {
   if (cmd && cmd.name === 'clear') { if (s === active) closeAsk(); confirmReset(s); return; }
   setBusy(s, true);
   s.stopped = false;
-  if (s === active) { closeAsk(); closePanel(); }
-  clearClouds(s); clearAgents(s);
+  if (s === active && !opts.keep) { closeAsk(); closePanel(); }
+  if (!opts.keep) { clearClouds(s); clearAgents(s); }
   if (!cmd) maybeRename(s, text);
-  const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = text;
-  if (capture) { const img = document.createElement('img'); img.className = 'shot'; img.alt = 'Captura adjunta'; img.src = capture.thumb; you.prepend(img); }
-  s.clouds.append(you);
+  // Lo escrito mientras trabajaba ya tiene su nube: no se repite.
+  if (!opts.shown) {
+    const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = text;
+    if (capture) { const img = document.createElement('img'); img.className = 'shot'; img.alt = 'Captura adjunta'; img.src = capture.thumb; you.prepend(img); }
+    s.clouds.append(you);
+  }
   s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
   s.steps = []; s.stepsT0 = Date.now();
@@ -1009,6 +1024,64 @@ async function ask(s, text, capture = null) {
     gota.flagSession(s.id, `${s.name} · ${kind === 'error' ? 'Error' : data.choice ? 'Pregunta' : 'Listo'}`, kind);
   }
   setTimeout(() => { if (!s.busy) setMood(s, 'neutral'); }, 2600);
+  afterQueued(s);
+}
+
+/* ---------- escribir mientras trabaja ---------- */
+// Como en la terminal: lo que escribes con Astro ocupado se le pasa a Claude, que lo incorpora a la
+// tarea en cuanto puede. Si no hay una respuesta de Claude en curso (p. ej. trabajan los ayudantes de
+// Astro) o lleva una captura o un comando /, espera y se envía en cuanto termine.
+async function sendWhileBusy(s, text) {
+  const cap = attached;
+  attached = null;
+  closeAsk();
+  const id = newId();
+  const you = document.createElement('div');
+  you.className = 'cloud you hit queued';
+  you.dataset.q = id;
+  you.innerHTML = '<small class="qstate">En cola</small><span></span>';
+  you.querySelector('span').textContent = text;
+  if (cap) { const img = document.createElement('img'); img.className = 'shot'; img.alt = 'Captura adjunta'; img.src = cap.thumb; you.prepend(img); }
+  s.clouds.append(you);
+  stickToBottom(s);
+  let ok = false;
+  if (!cap && !parseSlash(text)) { try { ok = (await api.queue({ conv: s.id, id, text })).ok; } catch { ok = false; } }
+  if (ok) {
+    you.querySelector('.qstate').textContent = 'Enviado · lo leerá en cuanto pueda';
+    s.inflight.push({ id, text, el: you });
+    s.history.push({ role: 'user', text });
+    addStep(s, { icon: '📨', text: 'Le escribiste: ' + firstLine(text) });
+  } else {
+    you.querySelector('.qstate').textContent = 'En cola · se envía al terminar';
+    s.later.push({ id, text, capture: cap, el: you });
+  }
+}
+// Claude incorporó a la tarea un mensaje escrito mientras trabajaba.
+function queuedRead(s, id) {
+  const q = s.inflight.find(x => x.id === id);
+  if (!q) return;
+  s.inflight = s.inflight.filter(x => x !== q);
+  q.el.classList.remove('queued');
+  q.el.querySelector('.qstate').textContent = 'Leído';
+  addStep(s, { icon: '📨', text: 'Leyó tu mensaje: ' + firstLine(q.text) });
+}
+// Al terminar: lo que quedó esperando se envía como siguiente pregunta, sin borrar lo que se ve.
+// Si se detuvo, no se envía nada: vuelve al cuadro de texto para que no se pierda.
+function afterQueued(s) {
+  const left = [...s.inflight.splice(0), ...s.later.splice(0)];
+  if (!left.length) return;
+  if (s.stopped) {
+    for (const q of left) { q.el.classList.add('unsent'); q.el.querySelector('.qstate').textContent = 'No se envió'; }
+    if (s === active) {
+      openAsk();
+      const ta = askEl && askEl.querySelector('textarea');
+      if (ta) { ta.value = left.map(q => q.text).join('\n\n'); ta.dispatchEvent(new Event('input')); }
+    }
+    return;
+  }
+  for (const q of left) { q.el.classList.remove('queued'); q.el.querySelector('.qstate').textContent = 'Enviado'; }
+  const capture = (left.find(q => q.capture) || {}).capture || null;
+  setTimeout(() => ask(s, left.map(q => q.text).join('\n\n'), capture, { keep: true, shown: true }), 400);
 }
 
 /* ---------- permisos de herramientas ---------- */
