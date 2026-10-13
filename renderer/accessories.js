@@ -34,7 +34,7 @@ export function bentHat(kit, mat, segs) {
   return { root: r, tip: parent };
 }
 
-const blank = over => ({ props: [], leftProps: [], face: [], extras: [], handMaterial: null, eyesDark: false, faceLift: 1, parts: {}, ...over });
+const blank = over => ({ props: [], leftProps: [], face: [], extras: [], handMaterial: null, eyesDark: false, eyeMode: null, faceLift: 1, parts: {}, ...over });
 
 function buildSanta(kit) {
   const m = mats(kit), g = new THREE.Group();
@@ -625,6 +625,201 @@ function buildCat(kit) {
     hide() { parts.twitchT = -9; parts.swishT = -9; for (const h of kit.agents()) if (h.yarn) h.yarn.visible = false; } });
 }
 
+// ---------- trajes de cuerpo entero: capucha con un hueco para la cara ----------
+const HR = 1.05;
+// Capucha: esfera con una abertura frontal de `hole` radianes y un reborde.
+function makeHood(mat, hole) {
+  const pts = []; for (let i = 40; i >= 0; i--) { const th = hole + (Math.PI - hole) * i / 40; pts.push(new THREE.Vector2(Math.sin(th) * HR, Math.cos(th) * HR)); }
+  const geo = new THREE.LatheGeometry(pts, 72); geo.rotateX(Math.PI / 2); geo.computeVertexNormals();
+  const g = new THREE.Group(); g.add(new THREE.Mesh(geo, mat));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(Math.sin(hole) * HR, 0.05, 16, 72), mat); rim.position.z = Math.cos(hole) * HR; g.add(rim);
+  return g;
+}
+// Casquete frontal (la cara blanca del pingüino, la pantalla del robot).
+function capFront(r, ang, mat) { const geo = new THREE.SphereGeometry(r, 48, 20, 0, Math.PI * 2, 0, ang); geo.rotateX(Math.PI / 2); return new THREE.Mesh(geo, mat); }
+// Coloca una pieza sobre la superficie en la dirección dada, apuntando hacia fuera.
+const onDir = (obj, dir, r) => { const n = new THREE.Vector3(...dir).normalize(); obj.position.copy(n).multiplyScalar(r); obj.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n); return obj; };
+
+function buildDino(kit) {
+  const skin = kit.felt(0x5fb85a), spike = kit.felt(0xf2a03a), spot = kit.felt(0x2e6b33);
+  const tooth = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 });
+  const HOLE = 0.6, g = makeHood(skin, HOLE);
+  // púas por el lomo, de la frente a la nuca
+  for (let i = 0; i < 7; i++) { const a = -0.25 + i * 0.36, s = 1 - i * 0.09; g.add(onDir(new THREE.Mesh(new THREE.ConeGeometry(0.13 * s, 0.26 * s, 24), spike), [0, Math.cos(a), -Math.sin(a)], HR + 0.08 * s)); }
+  // dientes alrededor de la parte de arriba del hueco
+  const rr = Math.sin(HOLE) * HR - 0.02;
+  for (let i = 0; i < 7; i++) {
+    const p = Math.PI * (0.18 + 0.64 * i / 6), t = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.09, 12), tooth);
+    t.position.set(Math.cos(p) * rr, Math.sin(p) * rr, Math.cos(HOLE) * HR + 0.03);
+    t.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-Math.cos(p), -Math.sin(p), 0)); g.add(t);
+  }
+  // manchas
+  const gSpot = new THREE.SphereGeometry(1, 24, 12);
+  [[0.55, 0.62, -0.55, 0.15], [-0.6, 0.5, -0.6, 0.13], [0.82, -0.05, -0.55, 0.12], [-0.85, 0.05, -0.5, 0.14], [0.2, 0.25, -0.95, 0.11], [-0.25, -0.35, -0.9, 0.13],
+    [0.5, -0.55, -0.66, 0.1], [-0.55, -0.62, -0.52, 0.11], [0.95, 0.15, 0.1, 0.1], [-0.95, 0.25, 0.05, 0.12], [0.75, 0.55, 0.3, 0.09], [-0.7, -0.4, 0.55, 0.1], [0.6, -0.65, 0.42, 0.09], [0, 0.88, -0.45, 0.08]]
+    .forEach(([x, y, z, r]) => {
+      const n = new THREE.Vector3(x, y, z).normalize(), s = new THREE.Mesh(gSpot, spot);
+      s.position.copy(n).multiplyScalar(HR - 0.005); s.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), n); s.scale.set(r * 1.5, r * 1.2, 0.03); g.add(s);
+    });
+  // cola con púas, colgada del cuerpo (no de la cabeza) para que se mueva aparte
+  const tail = new THREE.Group(); tail.position.set(0, -0.62, -0.72);
+  const tc = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.85, 32), skin); tc.rotation.x = -Math.PI / 2 - 0.35; tc.position.set(0, -0.1, -0.36); tail.add(tc);
+  for (let i = 0; i < 3; i++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.07 - i * 0.015, 0.14 - i * 0.03, 16), spike); sp.position.set(0, 0.12 - i * 0.07, -0.2 - i * 0.22); sp.rotation.x = -0.35; tail.add(sp); }
+  [[0.12, 0.05, -0.3, 0.07], [-0.1, -0.08, -0.6, 0.06]].forEach(([x, y, z, r]) => { const s = new THREE.Mesh(gSpot, spot); s.position.set(x, y, z); s.scale.set(r, r * 0.6, r); tail.add(s); });
+  const parts = { tail, stompT: -9 };
+  return blank({ group: g, extras: [tail], handMaterial: [skin, skin], parts,
+    stomp(T) { parts.stompT = T; },
+    update(st) {
+      const st2 = bump(st.T - parts.stompT, 0, 1.2);
+      tail.rotation.y = Math.sin(st.T * (st.busy ? 5 : 3)) * (0.35 + 0.3 * st2);
+      tail.scale.setScalar(Math.max(0.001, st.hw));
+    } });
+}
+
+// Huevo (diseño de pollo): los ayudantes salen como huevos con rayas y puntos.
+let EGG = null;
+function eggGeo() {
+  if (EGG) return EGG;
+  const pts = []; for (let i = 0; i <= 32; i++) { const a = Math.PI * i / 32; pts.push(new THREE.Vector2(Math.sin(a) * 0.12 * (1 - 0.18 * Math.cos(a)), -Math.cos(a) * 0.16)); }
+  EGG = { geo: new THREE.LatheGeometry(pts, 40), tex: canvasTex(128, 64, x => {
+    x.fillStyle = '#fff'; x.fillRect(0, 0, 128, 64);
+    x.strokeStyle = '#b9b4ab'; x.lineWidth = 5; x.beginPath(); for (let i = 0; i <= 128; i += 8) x.lineTo(i, 30 + (i / 8 % 2 ? -6 : 6)); x.stroke();
+    x.fillStyle = '#c8c3ba'; for (let i = 0; i < 9; i++) { x.beginPath(); x.arc(8 + i * 14, i % 2 ? 12 : 50, 3, 0, 7); x.fill(); }
+  }) };
+  if (EGG.tex) EGG.tex.colorSpace = THREE.SRGBColorSpace;
+  return EGG;
+}
+function eggify(a, on) {
+  if (!a.m || !!a.egg === on) return;
+  if (on) { a.egg = { geo: a.m.geometry }; a.m.geometry = eggGeo().geo; if (a.mat) { a.mat.map = eggGeo().tex; a.mat.needsUpdate = true; } }
+  else { a.m.geometry = a.egg.geo; a.m.rotation.z = 0; a.egg = null; if (a.mat) { a.mat.map = null; a.mat.needsUpdate = true; } }
+}
+
+function buildChicken(kit) {
+  const feather = kit.felt(0xfaf6ec), comb = kit.felt(0xe0453a), beakMat = kit.felt(0xf5a623);
+  const g = makeHood(feather, 0.6);
+  // cresta, pico, barbilla y plumas de la cola
+  [[-0.3, 0.13], [-0.05, 0.16], [0.22, 0.13]].forEach(([a, r]) => { const c = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 16), comb); c.scale.set(0.55, 1, 1); g.add(onDir(c, [0, Math.cos(a), -Math.sin(a) + 0.12], HR + r * 0.55)); });
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 24), beakMat); beak.rotation.x = Math.PI / 2; beak.scale.set(1.3, 1, 0.8); beak.position.set(0, -0.2, 1.06); g.add(beak);
+  const wattle = new THREE.Mesh(new THREE.SphereGeometry(0.07, 20, 14), comb); wattle.scale.set(0.8, 1.3, 0.7); wattle.position.set(0, -0.36, 0.95); g.add(wattle);
+  [-0.5, 0, 0.5].forEach(z => { const f = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 14), feather); f.scale.set(0.45, 1.3, 0.5); f.position.set(z * 0.5, 0.15 + (z ? 0 : 0.1), -1.08); f.rotation.set(-0.6, 0, -z * 0.9); g.add(f); });
+  const parts = { nextCluck: 0 };
+  return blank({ group: g, handMaterial: [feather, feather], parts,
+    update(st) {
+      for (const h of st.helpers) {
+        if (!h.egg && st.awake && st.say && st.T > parts.nextCluck) { parts.nextCluck = st.T + 20; st.say(Math.random() < 0.5 ? '¡Puse un huevo!' : '¡Cloc, cloc! Huevo en camino.'); }
+        eggify(h, true);
+        h.m.rotation.z = Math.sin(st.T * 6 + h.id) * 0.25; // se tambalea mientras trabaja
+      }
+    },
+    hide() { for (const h of kit.agents()) eggify(h, false); } });
+}
+
+function buildMummy() {
+  const paper = canvasTex(256, 64, x => {
+    x.fillStyle = '#fbfaf6'; x.fillRect(0, 0, 256, 64);
+    x.fillStyle = 'rgba(160,150,130,.18)'; for (let i = 0; i < 256; i += 8) for (let j = 4; j < 64; j += 8) { x.beginPath(); x.arc(i + (j % 16 ? 4 : 0), j, 1.4, 0, 7); x.fill(); }
+    x.strokeStyle = 'rgba(120,110,95,.45)'; x.lineWidth = 2; x.setLineDash([4, 4]); [64, 128, 192, 256].forEach(px => { x.beginPath(); x.moveTo(px - 1, 0); x.lineTo(px - 1, 64); x.stroke(); });
+  });
+  if (paper) { paper.colorSpace = THREE.SRGBColorSpace; paper.wrapS = THREE.RepeatWrapping; paper.anisotropy = 4; }
+  const paperMat = repeat => { const m = new THREE.MeshStandardMaterial({ color: paper ? 0xffffff : 0xfbfaf6, roughness: 0.92, side: THREE.DoubleSide });
+    if (paper) { m.map = paper.clone(); m.map.repeat.set(repeat, 1); m.map.needsUpdate = true; } return m; };
+  const wrapMat = new THREE.MeshStandardMaterial({ color: 0xf8f6f0, roughness: 0.95 });
+  // vueltas de papel, cada una un poco ondulada y torcida; las de la altura de los ojos dejan la rendija
+  const ribbon = (rt, rb, h, wob, ts = 0, tl = Math.PI * 2) => {
+    const geo = new THREE.CylinderGeometry(rt, rb, h, 96, 3, true, ts, tl), p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) { const a = Math.atan2(p.getZ(i), p.getX(i)), k = 1 + 0.018 * Math.sin(a * 9 + wob) + 0.01 * Math.sin(a * 23); p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); p.setY(i, p.getY(i) + Math.sin(a * 3 + wob) * 0.02); }
+    geo.computeVertexNormals();
+    return new THREE.Mesh(geo, paperMat(Math.max(1, Math.round(Math.max(rt, rb) * 9 * tl / (Math.PI * 2)))));
+  };
+  const R = v => Math.sqrt(Math.max(0.02, 1 - v * v)) + 0.045;
+  const g = new THREE.Group();
+  for (let i = 0, y = -0.9; y <= 0.93; i++, y += 0.14) {
+    const eye = y > -0.28 && y < 0.32;
+    const b = ribbon(R(y + 0.1), R(y - 0.1), 0.2, i * 1.7, eye ? 0.64 : 0, eye ? Math.PI * 2 - 1.28 : Math.PI * 2); b.position.y = y;
+    const w = new THREE.Group(); if (!(y > -0.45 && y < 0.48)) w.rotation.set((i % 2 ? 1 : -1) * 0.07, i * 1.3, ((i % 3) - 1) * 0.06); w.add(b); g.add(w);
+  }
+  [[0.6, 0.5], [-0.55, -0.6]].forEach(([y, tilt], i) => { const b = ribbon(R(y + 0.1) + 0.02, R(y - 0.1) + 0.02, 0.18, 9 + i, Math.PI * 0.62, Math.PI * 0.76); const w = new THREE.Group(); w.rotation.set(0, 0, tilt); b.position.y = y; w.add(b); g.add(w); });
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1.008, 64, 40), new THREE.MeshStandardMaterial({ color: 0xe9e5da, roughness: 0.95 })));
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1.03, 40, 10, Math.PI / 2 - 0.66, 1.32, 1.245, 0.63), new THREE.MeshStandardMaterial({ color: 0x2a2520, roughness: 0.9 })));
+  // tira suelta que cuelga y se mece
+  const sg = new THREE.PlaneGeometry(0.2, 0.62, 1, 10), sp = sg.attributes.position;
+  for (let i = 0; i < sp.count; i++) { const y = sp.getY(i); sp.setZ(i, Math.sin((y + 0.31) * 6) * 0.04); sp.setY(i, y - 0.31); }
+  sg.computeVertexNormals();
+  const stripMat = new THREE.MeshStandardMaterial({ color: paper ? 0xffffff : 0xfbfaf6, roughness: 0.92, side: THREE.DoubleSide });
+  if (paper) { stripMat.map = paper.clone(); stripMat.map.rotation = Math.PI / 2; stripMat.map.center.set(0.5, 0.5); stripMat.map.needsUpdate = true; }
+  const strip = new THREE.Mesh(sg, stripMat); strip.position.set(0.84, -0.42, 0.42); strip.rotation.set(0.1, 0.5, 0.5); g.add(strip);
+  // rollo de papel en la mano derecha
+  const roll = new THREE.Group();
+  const side = new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.95, side: THREE.DoubleSide });
+  const cap = new THREE.RingGeometry(0.055, 0.15, 40); cap.rotateX(-Math.PI / 2);
+  const c1 = new THREE.Mesh(cap, side); c1.position.y = 0.12; const c2 = c1.clone(); c2.position.y = -0.12;
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.24, 24, 1, true), new THREE.MeshStandardMaterial({ color: 0xa57b4f, roughness: 0.9, side: THREE.DoubleSide }));
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.24, 40, 1, true), paperMat(3));
+  const spin = new THREE.Group(); spin.add(outer, c1, c2, core); spin.rotation.z = Math.PI / 2; roll.add(spin); roll.position.set(0.05, 0.02, 0.12);
+  const parts = { strip, roll: spin };
+  return blank({ group: g, props: [roll], handMaterial: [wrapMat, wrapMat], eyeMode: 'light', parts,
+    update(st) {
+      strip.rotation.z = 0.5 + Math.sin(st.T * 2.2) * 0.25 + st.spring.az * 0.8;
+      spin.rotation.x = st.T * (st.busy ? 4 : 1.5); // desenrolla más rápido cuando trabaja
+    } });
+}
+
+function buildPenguin(kit) {
+  const black = new THREE.MeshPhysicalMaterial({ color: 0x1d1f26, roughness: 0.45, clearcoat: 0.5 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf7f6f2, roughness: 0.6 }), orange = kit.felt(0xf39a2b);
+  const g = makeHood(black, 0.72);
+  g.add(capFront(1.004, 0.76, white));
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1.054, 48, 16, 0, Math.PI * 2, 0, 0.52), white);
+  belly.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -0.62, 0.78).normalize()); g.add(belly);
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.2, 24), orange); beak.rotation.x = Math.PI / 2 + 0.25; beak.scale.set(1.4, 1, 0.7); beak.position.set(0, -0.2, 1.06); g.add(beak);
+  [-1, 1].forEach(s => { const f = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 14), orange); f.scale.set(1, 0.32, 1.4); f.position.set(0.32 * s, -1.02, 0.35); f.rotation.y = -0.3 * s; g.add(f); });
+  return blank({ group: g, handMaterial: [black, black], eyesDark: true,
+    // en reposo se balancea de un pie a otro
+    update(st) { if (st.awake && !st.acting) kit.bot.rotation.z += Math.sin(st.T * 3.2) * 0.05; } });
+}
+
+function buildRobot(kit) {
+  const metal = new THREE.MeshPhysicalMaterial({ color: 0xa9b1ba, metalness: 0.45, roughness: 0.32, clearcoat: 0.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x5b636d, metalness: 0.5, roughness: 0.4 });
+  const bulbMat = new THREE.MeshStandardMaterial({ color: 0xff4a3a, emissive: 0xff2a1a, emissiveIntensity: 1, roughness: 0.3 });
+  const sparkMat = new THREE.MeshBasicMaterial({ color: 0xffd34a });
+  const HOLE = 0.64, g = makeHood(metal, HOLE);
+  g.add(capFront(1.003, 0.68, new THREE.MeshStandardMaterial({ color: 0x1a2128, roughness: 0.2, metalness: 0.2 })));
+  // remaches alrededor de la pantalla y en la costura de atrás
+  const rv = new THREE.SphereGeometry(0.032, 12, 8), rr = Math.sin(HOLE) * HR + 0.08;
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2, m = new THREE.Mesh(rv, dark); m.position.set(Math.cos(a) * rr, Math.sin(a) * rr, Math.cos(HOLE) * HR - 0.05); g.add(m); }
+  const seam = new THREE.Mesh(new THREE.TorusGeometry(1.055, 0.022, 10, 96, Math.PI * 1.3), dark); seam.rotation.set(Math.PI / 2, 0, Math.PI * 0.85); seam.position.y = 0.05; g.add(seam);
+  for (let i = 0; i < 10; i++) { const a = Math.PI * (0.88 + i * 0.13), m = new THREE.Mesh(rv, dark); m.position.set(Math.cos(a) * 1.07, 0.15, -Math.abs(Math.sin(a)) * 1.07 * (Math.sin(a) < 0 ? 1 : -1)); g.add(m); }
+  // tuercas en las orejas
+  [-1, 1].forEach(s => {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.12, 32), dark); b.rotation.z = Math.PI / 2; b.position.set(1.07 * s, 0.05, 0); g.add(b);
+    const n = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.12, 6), metal); n.rotation.z = Math.PI / 2; n.position.set(1.14 * s, 0.05, 0); g.add(n);
+  });
+  // antena con foco, que se balancea como los sombreros
+  const ant = new THREE.Group(); ant.position.set(0, 1.03, 0); ant.userData = { bend: 0, w: 2 }; g.add(ant); kit.sway.push(ant);
+  const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.34, 12), dark); stalk.position.y = 0.17; ant.add(stalk);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.08, 24, 16), bulbMat); bulb.position.y = 0.38; ant.add(bulb);
+  // chispas cuando trabaja duro
+  const gSpark = new THREE.OctahedronGeometry(0.035);
+  const sparks = Array.from({ length: 6 }, () => { const m = new THREE.Mesh(gSpark, sparkMat); m.visible = false; g.add(m); return { m, t: 9, v: new THREE.Vector3(), o: new THREE.Vector3() }; });
+  const parts = { bulbMat, sparks };
+  return blank({ group: g, handMaterial: [metal, metal], eyeMode: 'glow', parts,
+    update(st) {
+      bulbMat.emissiveIntensity = st.busy ? (st.T % 0.5 < 0.25 ? 1.6 : 0.2) : (st.T % 1.4 < 0.7 ? 1.2 : 0.15);
+      for (const s of sparks) {
+        s.t += st.dt;
+        if (s.t > 0.45 && st.busy && st.awake && Math.random() < st.dt * 2.5) {
+          s.t = 0; const a = Math.random() * 6.28;
+          s.v.set(Math.cos(a) * 1.4, 1.6 + Math.random(), Math.sin(a) * 0.8); s.o.set((Math.random() - 0.5) * 1.6, 0.6 + Math.random() * 0.5, 0.5);
+        }
+        const k = s.t; s.m.visible = k < 0.45;
+        if (s.m.visible) { s.m.position.copy(s.o).addScaledVector(s.v, k); s.m.position.y -= 4 * k * k; s.m.scale.setScalar(1 - k / 0.45); s.m.rotation.set(k * 9, k * 7, 0); }
+      }
+    },
+    hide() { for (const s of sparks) { s.t = 9; s.m.visible = false; } } });
+}
+
 // «1 tarea terminada» / «3 tareas terminadas»; fijo: el verbo no concuerda en número («al punto»).
 const tareas = (n, verbo = 'terminada', fijo = false) => (fijo ? (n === 1 ? '1 tarea' : `${n} tareas`) + ' ' + verbo
   : n === 1 ? `1 tarea ${verbo}` : `${n} tareas ${verbo}s`);
@@ -715,6 +910,31 @@ const DEFS = [
       idle: m => { m.built.twitch(m.T); m.play('giggle'); m.say(m.pick(['Miau.', 'Mrrr… ¿jugamos?'])); },
       done: m => { m.play('jump'); m.setExpr('joy', 1.4); } },
     doneLine: n => `¡Bug cazado! ${tareas(n)}.` },
+  { key: 'dino', label: 'Dinosaurio', emoji: '🦖', build: buildDino,
+    react: { on: m => { m.play('recoil'); m.setExpr('angry', 1.2); m.built.stomp(m.T); m.say('¡RAWR! Soy un gota-saurio.'); },
+      idle: m => { m.built.stomp(m.T); m.play('squish'); m.say('Rawr…'); },
+      done: m => { m.built.stomp(m.T); m.play('jump'); m.setExpr('joy', 1.4); } },
+    doneLine: n => `¡RAWR! ${tareas(n, 'devorada')}.` },
+  { key: 'chicken', label: 'Pollo', emoji: '🐔', build: buildChicken,
+    react: { on: m => { m.play('flap'); m.setExpr('happy', 1.4); m.say('¡Pío, pío! ¿Quién es un pollito?'); },
+      idle: m => { m.play('flap'); m.say(m.pick(['Cloc, cloc.', 'Pío.'])); },
+      done: m => { m.play('flap'); m.setExpr('proud', 1.4); } },
+    doneLine: n => `¡Huevos listos! ${tareas(n, 'empollada')}.` },
+  { key: 'mummy', label: 'Momia', emoji: '🧻', build: buildMummy,
+    react: { on: m => { m.play('shamble'); m.setExpr('sleepy', 2); m.say(m.pick(['Mmmmh… me envolví en papel de baño.', 'Momia edición doble hoja.'])); },
+      idle: m => { m.play('shamble'); m.say('Mmmmh… llevo 3000 años esperando tu mensaje.'); },
+      done: m => { m.play('shamble'); } },
+    doneLine: n => `Mmmh… ${tareas(n)}. Al fin.` },
+  { key: 'penguin', label: 'Pingüino', emoji: '🐧', build: buildPenguin,
+    react: { on: m => { m.play('waddle'); m.setExpr('happy', 1.6); m.say(m.pick(['¡Noot noot! Reportando desde el polo.', 'Hace un frío perfecto aquí.'])); },
+      idle: m => { m.play('waddle'); },
+      done: m => { m.play('waddle'); m.setExpr('joy', 1.4); } },
+    doneLine: n => `¡Noot noot! ${tareas(n)}.` },
+  { key: 'robot', label: 'Robot retro', emoji: '🤖', build: buildRobot,
+    react: { on: m => { m.play('beep'); m.setExpr('focus', 1.4); m.say('BIP BOP. Modo robot activado.'); },
+      idle: m => { m.play('beep'); m.say('BIP.'); },
+      done: m => { m.play('beep'); m.setExpr('proud', 1.4); } },
+    doneLine: n => `BIP BOP: ${tareas(n, 'procesada')}.` },
 ];
 
 export const ACCESSORY_LIST = DEFS.map(({ key, label, emoji }) => ({ key, label, emoji }));

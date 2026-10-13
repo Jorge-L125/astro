@@ -1,6 +1,6 @@
 // Qué diseño lleva cada sesión: por carpeta de trabajo o el mismo siempre. Sin Three.js ni DOM.
 export const OUTFIT_KEYS = ['none', 'santa', 'ghost', 'vampire', 'witch', 'party', 'cowboy', 'astro', 'hardhat',
-  'phones', 'ninja', 'magic', 'pirate', 'detective', 'viking', 'chef', 'cat'];
+  'phones', 'ninja', 'magic', 'pirate', 'detective', 'viking', 'chef', 'cat', 'dino', 'chicken', 'mummy', 'penguin', 'robot'];
 const isKey = k => typeof k === 'string' && OUTFIT_KEYS.includes(k);
 const DEFAULTS = () => ({ mode: 'folder', always: 'none', byFolder: {} });
 
@@ -56,6 +56,8 @@ const NAMES = {
   mago: 'magic', pirata: 'pirate', detective: 'detective', vikingo: 'viking', chef: 'chef', cocinero: 'chef',
   navidad: 'santa', santa: 'santa', 'papá noel': 'santa', 'papa noel': 'santa', fantasma: 'ghost', vampiro: 'vampire',
   bruja: 'witch', fiesta: 'party', 'cumpleaños': 'party', vaquero: 'cowboy', cowboy: 'cowboy', gato: 'cat', gatito: 'cat', michi: 'cat',
+  dinosaurio: 'dino', dino: 'dino', pollo: 'chicken', pollito: 'chicken', gallina: 'chicken', momia: 'mummy',
+  'pingüino': 'penguin', pinguino: 'penguin', robot: 'robot',
 };
 const ART = '(?:(?:el|la|los|las|tu|tus|un|una)\\s+)?';
 const GARMENT = '(?:sombrero|gorro|gorrito|casco|traje|disfraz|manta|capa|cascos|accesorio|audífonos|audifonos)';

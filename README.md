@@ -87,6 +87,41 @@ Claude solo usa sin preguntar las herramientas de `allowedTools` (por defecto, l
 - **No, gracias:** no cambia nada.
 - **Quitar un permiso:** en Ajustes → *Claude puede usar sin preguntar*, pulsa la × de la herramienta.
 
+## Escribir mientras trabaja
+
+Como en la terminal de Claude Code, puedes escribirle a Astro aunque esté trabajando: abre la pregunta (clic en Astro o el atajo) y envía. El mensaje sale marcado *En cola* y Claude lo incorpora a la tarea en cuanto puede; al leerlo pasa a *Leído* y la respuesta atiende a todo. Si Claude ya estaba cerrando su respuesta, Astro espera a la siguiente.
+
+- Los comandos `/`, los mensajes con una captura adjunta y lo que escribas mientras trabajan los ayudantes de Astro esperan y se envían solos al terminar, sin borrar lo que se ve.
+- Si detienes la tarea, lo que no llegó a leer queda como *No se envió* y su texto vuelve al cuadro para que no se pierda.
+- La nube donde escribes se queda siempre al final, aunque lleguen pasos o respuestas.
+
+## OpenCode
+
+Además de Claude Code, cada sesión puede trabajar con [OpenCode](https://opencode.ai) (probado con la versión **1.19**). El motor se elige junto a la carpeta, en la nube de pregunta (`✳ Claude Code ▾`): ahí aparecen los modelos de OpenCode conectados. Cambiar de motor empieza otra conversación; cambiar de modelo dentro de OpenCode sigue la misma. En *Ajustes › Motor de las sesiones nuevas* eliges con cuál empiezan las sesiones.
+
+Funciona igual que con Claude: subagentes, pasos, `/resume`, `/historial`, comandos `/` del servidor y escribir mientras trabaja. Los permisos se piden **en el momento**: *Permitir* (esta vez), *Siempre* (en esta conversación) o *No*. Lo que tengas en *Puede usar sin preguntar* vale también para OpenCode.
+
+**Dónde corre.** Con OpenCode instalado en tu equipo no hay que configurar nada: Astro lo arranca cuando lo necesitas (con una contraseña de un solo uso, solo accesible desde tu equipo) y lo apaga al cerrarse. Si no está instalado, Astro te lo dice al usarlo.
+
+Para usar un servidor que ya está en marcha (otro equipo, o Docker para probarlo aislado), elige *Otro servidor* en *Ajustes › Ajustes de OpenCode…* y pon su dirección, su contraseña y las carpetas compartidas (`carpeta de tu equipo => carpeta en el servidor`). Por ejemplo, con Docker:
+
+```bash
+docker run -d --name astro-opencode -p 127.0.0.1:4096:4096 \
+  -e OPENCODE_SERVER_PASSWORD=una-contraseña \
+  -v "/ruta/a/tus/proyectos:/work" \
+  ghcr.io/anomalyco/opencode:1.19.0 serve --hostname 0.0.0.0 --port 4096
+```
+
+y en Ajustes: `http://127.0.0.1:4096`, esa contraseña y `/ruta/a/tus/proyectos => /work`.
+
+**Modelos.** Los gratuitos de OpenCode vienen conectados; además puedes añadir un proveedor compatible con OpenAI (URL base, modelos y clave) o conectar **GitHub Copilot** (se abre GitHub y escribes el código que muestra Astro). La contraseña y la clave se guardan cifradas con el almacén del sistema y nunca se muestran.
+
+Bueno saber:
+
+- OpenCode no puede usar tu suscripción de Claude (Pro o Max); para eso sigue usando Claude Code.
+- Los modelos gratuitos pueden tardar y guardar lo que les envías: no los uses con código privado.
+- OpenCode 1.19 rompe el historial de una sesión si se le pide un formato JSON obligatorio, así que Astro pide su formato en las instrucciones; si un modelo no lo sigue, la respuesta se muestra como texto.
+
 ## Sesiones
 
 Cada sesión es una conversación independiente con Claude Code: tiene su color, sus nubes, sus ayudantes y su historial. Una sesión puede seguir trabajando mientras está detrás.
@@ -120,7 +155,7 @@ Astro detecta las capturas por dos vías: la carpeta donde el sistema las guarda
 Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
 
 - **Color de esta sesión**, **posición** (izquierda o derecha) y **tema** (automático, claro u oscuro).
-- **Accesorio (diseño):** 17 a elegir — Navidad, fantasma, vampiro, bruja, fiesta, vaquero, astronauta, casco de obra, audífonos, ninja, mago, pirata, detective, vikingo, chef y gato (que mueve las orejas y la cola de vez en cuando, y ronronea si lo acaricias; sus ayudantes son ovillos de lana). Cada uno tiene sus animaciones: al ponérselo, un gesto propio de vez en cuando en reposo (confeti, humo ninja, «¡Tierra a la vista!»…), otra mientras trabaja (el martillo golpea, la olla del chef hierve, los ayudantes del vikingo llevan escudo) y una frase al terminar los ayudantes.
+- **Accesorio (diseño):** 22 a elegir — Navidad, fantasma, vampiro, bruja, fiesta, vaquero, astronauta, casco de obra, audífonos, ninja, mago, pirata, detective, vikingo, chef, gato (que mueve las orejas y la cola de vez en cuando, y ronronea si lo acaricias; sus ayudantes son ovillos de lana), dinosaurio (con púas, dientes y una cola que se menea), pollo (sus ayudantes son huevos de colores), momia (envuelta en papel de baño, con el rollo en la mano), pingüino (se balancea de un pie a otro) y robot retro (ojos cian, antena con luz y chispas mientras trabaja). Cada uno tiene sus animaciones: al ponérselo, un gesto propio de vez en cuando en reposo (confeti, humo ninja, «¡Tierra a la vista!»…), otra mientras trabaja (el martillo golpea, la olla del chef hierve, los ayudantes del vikingo llevan escudo) y una frase al terminar los ayudantes.
   - **Por proyecto** (por defecto): cada carpeta de trabajo recuerda su diseño; las sesiones abiertas en la misma carpeta lo comparten. **Siempre el mismo** pone el mismo a todas.
   - Las sesiones de atrás conservan su diseño (en pequeño) y lo recuperan al volver al frente.
   - También se cambia hablándole: «ponte el sombrero de pirata», «vístete de chef», «quítate el sombrero». Lo hace Astro, sin llamar a Claude.
@@ -214,6 +249,9 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/claude.js` — mantiene un proceso `claude -p` vivo por sesión (entrada y salida en streaming), con reanudación automática y procesos precalentados.
 - `src/claude-bin.js` — localiza el ejecutable de Claude Code (`.exe`, `.cmd` de npm, Homebrew, `~/.local/bin`…).
 - `src/shell-path.js` — PATH del shell de login en macOS.
+- `src/opencode.js` — OpenCode como motor: arranca o conecta el servidor y lleva cada conversación con la misma forma que `src/claude.js`.
+- `src/opencode-map.js` — traducciones entre OpenCode y Astro (respuesta, herramientas, permisos, carpetas, historial).
+- `src/opencode-settings.js` + `renderer/opencode-panel.js` — ajustes de OpenCode; la contraseña y la clave van cifradas.
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.
 - `src/commands.js` + `renderer/slash.js` — comandos / (qué se muestra, menú y respuestas).
 - `src/captures.js` + `src/screenshot-dir.js` — detección de capturas de pantalla (carpeta del sistema y portapapeles).

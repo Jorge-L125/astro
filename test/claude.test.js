@@ -206,6 +206,30 @@ test('describeTool resume cada herramienta', () => {
   assert.equal(describeTool('Raro'), 'Usando Raro');
 });
 
+test('un mensaje escrito mientras trabaja se incorpora a la misma respuesta y avisa al leerlo', async t => {
+  const s = session();
+  t.after(() => s.close());
+  const events = [];
+  const h = s.send('cola', ev => events.push(ev));
+  assert.equal(s.queue('y otra cosa', 'q1'), true);
+  const r = await h.done;
+  assert.deepEqual(r.structured.echo, ['cola', 'y otra cosa']);
+  assert.deepEqual(events.filter(e => e.type === 'queued-read').map(e => e.qid), ['q1']);
+  assert.equal(s.queue('sin turno', 'q2'), false, 'sin nada en curso no se encola');
+});
+
+test('si Claude cierra la respuesta antes de leer el mensaje, espera a la siguiente', async t => {
+  const s = session();
+  t.after(() => s.close());
+  const events = [];
+  const h = s.send('hola', ev => events.push(ev));
+  s.queue('después', 'q1');
+  const r = await h.done;
+  assert.equal(r.structured.echo, 'después', 'la respuesta final es la que leyó el mensaje en cola');
+  assert.ok(events.some(e => e.type === 'partial'));
+  assert.deepEqual(events.filter(e => e.type === 'queued-read').map(e => e.qid), ['q1']);
+});
+
 test('con subagentes en segundo plano espera la respuesta final y cuenta lo que hace cada uno', async t => {
   const s = session();
   t.after(() => s.close());

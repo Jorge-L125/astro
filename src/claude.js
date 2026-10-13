@@ -31,7 +31,9 @@ const CONTINUE_WAIT_MS = 30 * 1000;
 const resultText = c => (typeof c === 'string' ? c : Array.isArray(c) ? c.map(x => (x && x.type === 'text' ? x.text : '')).join('\n') : '');
 
 function buildArgs({ systemPrompt, schema, resume, model, allowedTools, permissionMode }) {
-  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'];
+  // --replay-user-messages: Claude Code repite cada mensaje del usuario en el momento en que lo
+  // incorpora; así se sabe cuándo leyó uno que se le escribió mientras trabajaba.
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--replay-user-messages'];
   if (model) args.push('--model', model);
   if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
   if (schema) args.push('--json-schema', JSON.stringify(schema));
@@ -186,6 +188,10 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
           t.onEvent({ type: 'tool', name: part.name, label: describeTool(part.name, part.input) });
         }
       }
+    } else if (ev.type === 'user' && !parent && ev.message && t.pending.length && typeof ev.message.content === 'string') {
+      // Eco de un mensaje escrito mientras trabajaba: Claude ya lo incorporó a la tarea.
+      const i = t.pending.findIndex(q => q.text === ev.message.content);
+      if (i >= 0) { const [q] = t.pending.splice(i, 1); t.onEvent({ type: 'queued-read', qid: q.id }); }
     } else if (ev.type === 'user' && !parent && ev.message && Array.isArray(ev.message.content)) {
       // Un subagente que no va en segundo plano entrega su resultado como respuesta de la herramienta.
       for (const part of ev.message.content) {
@@ -198,8 +204,9 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       if (ev.session_id) sessionId = ev.session_id;
       // Qué herramienta pidió Claude y con qué (archivo, comando…), para poder preguntar al usuario.
       for (const d of ev.permission_denials || []) if (d && d.tool_name) t.denials.push({ tool: d.tool_name, input: d.tool_input || {} });
-      // Con subagentes aún trabajando (o recién terminados), Claude seguirá respondiendo: se espera.
-      if (!ev.is_error && (t.running.size || t.continuations > 0)) {
+      // Con subagentes aún trabajando (o recién terminados), o con mensajes escritos mientras trabajaba
+      // que aún no leyó, Claude seguirá respondiendo: se espera.
+      if (!ev.is_error && (t.running.size || t.continuations > 0 || t.pending.length)) {
         t.last = ev;
         t.onEvent({ type: 'partial', text: typeof ev.result === 'string' ? ev.result : '', structured: ev.structured_output || null });
         // Por si la respuesta de seguimiento no llega, se da por terminado tras un rato.
@@ -291,7 +298,8 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
       let t;
       const done = new Promise((resolve, reject) => {
         // running/tracked: tareas en segundo plano; continuations: respuestas que Claude aún debe dar.
-        t = { resolve, reject, onEvent, inits: 0, running: new Set(), tracked: new Set(), continuations: 0, agents: new Set(), ended: new Set(), denials: [], planFile: null, plan: null, last: null, wait: null };
+        // pending: mensajes escritos mientras trabaja que Claude aún no ha leído.
+        t = { resolve, reject, onEvent, inits: 0, running: new Set(), tracked: new Set(), continuations: 0, agents: new Set(), ended: new Set(), denials: [], planFile: null, plan: null, last: null, wait: null, pending: [] };
       });
       const switchTo = typeof text === 'string' && /^\/model\s+(\S+)/.exec(text.trim());
       if (switchTo) t.model = switchTo[1];
@@ -309,6 +317,17 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
           t.reject(fail('cancelled', 'Cancelado'));
         },
       };
+    },
+
+    /**
+     * Escribe otro mensaje mientras Claude trabaja, como en la terminal: lo incorpora a la tarea en
+     * cuanto puede. Devuelve false si no hay nada en curso (entonces va como pregunta normal).
+     */
+    queue(text, id) {
+      if (closed || !turn || !proc || typeof text !== 'string' || !text.trim()) return false;
+      turn.pending.push({ id, text });
+      proc.child.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n');
+      return true;
     },
 
     close() {

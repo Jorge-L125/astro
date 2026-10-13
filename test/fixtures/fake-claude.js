@@ -5,6 +5,7 @@
 //   "crash"  escribe en stderr y termina con código 3
 //   "error"  devuelve un resultado con is_error
 //   "agents" lanza un subagente en segundo plano: responde a medias y, cuando termina, otra vez
+//   "cola"   tarda un poco: los mensajes que lleguen mientras tanto se incorporan a la misma respuesta
 //   otro     responde con { echo, pid, resume, turn }
 const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
@@ -18,8 +19,12 @@ if (resume === 'missing') {
 const sessionId = resume || `sid-${process.pid}`;
 const out = obj => process.stdout.write(JSON.stringify(obj) + '\n');
 let turn = 0;
+const replay = args.includes('--replay-user-messages');
+let busy = null; // turno "cola" en curso: { texts }
 
 function reply(content) {
+  // Como Claude Code: lo que llega con un turno en marcha se incorpora a él (y se repite al leerlo).
+  if (busy) { busy.texts.push(content); if (replay) out({ type: 'user', message: { role: 'user', content } }); return; }
   turn++;
   out({
     type: 'system', subtype: 'init', session_id: sessionId,
@@ -27,7 +32,12 @@ function reply(content) {
     skills: ['code-review'],
     terminal_slash_commands: ['vim'],
   });
+  if (replay) out({ type: 'user', message: { role: 'user', content } });
   if (content === 'slow') return;
+  if (content === 'cola') {
+    busy = { texts: [content] };
+    return setTimeout(() => { const texts = busy.texts; busy = null; out({ type: 'result', session_id: sessionId, result: 'ok', structured_output: { echo: texts } }); }, 150);
+  }
   if (content === 'agents') return agents();
   if (content === 'plan') return plan();
   if (content === 'exitplan') return exitPlan();

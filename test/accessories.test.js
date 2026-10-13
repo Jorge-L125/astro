@@ -17,7 +17,7 @@ test('el registro tiene claves, nombres y emojis únicos y empieza por «Ninguno
   const { ACCESSORY_LIST, isAccessory } = await load();
   const { OUTFIT_KEYS } = await import('../renderer/outfits.js');
   assert.equal(ACCESSORY_LIST[0].key, 'none');
-  assert.deepEqual(ACCESSORY_LIST.map(a => a.key), OUTFIT_KEYS, 'los 16 diseños, en el orden de los botones');
+  assert.deepEqual(ACCESSORY_LIST.map(a => a.key), OUTFIT_KEYS, 'los 21 diseños, en el orden de los botones');
   for (const f of ['key', 'label', 'emoji']) assert.equal(new Set(ACCESSORY_LIST.map(a => a[f])).size, ACCESSORY_LIST.length, f);
   for (const a of ACCESSORY_LIST) assert.ok(OUTFIT_KEYS.includes(a.key), a.key);
   assert.equal(isAccessory('santa'), true);
@@ -137,4 +137,36 @@ test('con el gato, los ayudantes son ovillos de lana (y dejan de serlo al cambia
   assert.ok(sameColor, 'del color del ayudante');
   cat.hide();
   assert.equal(helper.yarn.visible, false);
+});
+
+test('con el pollo, los ayudantes son huevos (y vuelven a ser gotas al cambiar de diseño)', async () => {
+  const THREE = await three();
+  const { createAccessories } = await load();
+  const kit = await fakeKit();
+  const ball = new THREE.SphereGeometry(0.13);
+  const helper = { id: 1, mat: new THREE.MeshStandardMaterial(), m: new THREE.Mesh(ball) };
+  kit.agents = () => [helper];
+  const chick = createAccessories(kit).get('chicken');
+  const said = [];
+  chick.update({ T: 1, dt: 0.016, busy: true, awake: true, acting: false, hands: [], hw: 1, helpers: [helper], spring: { ax: 0, az: 0 }, look: {}, setLook() {}, say: t => said.push(t) });
+  assert.notEqual(helper.m.geometry, ball, 'tiene forma de huevo');
+  assert.equal(said.length, 1, 'cacarea al poner el huevo');
+  chick.hide();
+  assert.equal(helper.m.geometry, ball, 'vuelve a ser una gota');
+});
+
+test('la momia y el robot fijan el color de los ojos; el robot echa chispas solo trabajando', async () => {
+  const { createAccessories } = await load();
+  const accs = createAccessories(await fakeKit());
+  assert.equal(accs.get('mummy').eyeMode, 'light');
+  assert.equal(accs.get('robot').eyeMode, 'glow');
+  assert.equal(accs.get('penguin').eyesDark, true);
+  const robot = accs.get('robot');
+  const st = (T, busy) => ({ T, dt: 0.05, busy, awake: true, acting: false, hands: [], hw: 1, helpers: [], spring: { ax: 0, az: 0 }, look: {}, setLook() {} });
+  const lit = () => robot.parts.sparks.filter(s => s.m.visible).length;
+  for (let i = 0; i < 200; i++) robot.update(st(i * 0.05, false));
+  assert.equal(lit(), 0, 'en reposo, sin chispas');
+  let seen = 0;
+  for (let i = 0; i < 200; i++) { robot.update(st(10 + i * 0.05, true)); seen = Math.max(seen, lit()); }
+  assert.ok(seen > 0, 'trabajando, alguna chispa');
 });

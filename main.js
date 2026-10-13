@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell, powerMonitor, dialog } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, Tray, Menu, nativeImage, clipboard, shell, powerMonitor, dialog, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -18,6 +18,9 @@ const { loginShellPath, mergePath } = require('./src/shell-path');
 const { listConversations, readConversation } = require('./src/history');
 const { readPlan } = require('./src/plans');
 const { createUpdater } = require('./src/updater');
+const { createOpencodeServer, createOpencodeSession } = require('./src/opencode');
+const { createOpencodeSettings } = require('./src/opencode-settings');
+const ocMap = require('./src/opencode-map');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
 // avisa a la primera, que se muestra con la pregunta abierta ('second-instance'), y termina antes
@@ -90,6 +93,60 @@ const running = new Map(); // id de petición -> función para cancelarla
 const conversations = new Map(); // id de sesión de la interfaz -> proceso de Claude Code que la atiende
 const prefs = createPrefs(app.getPath('userData'));
 const commands = createCommandStore(app.getPath('userData'), { home: os.homedir(), cwd: config.workingDirectory });
+
+/* ---------- OpenCode (segundo motor) ---------- */
+// La contraseña del servidor y la clave del proveedor se cifran con el almacén del sistema.
+const ocSettings = createOpencodeSettings(app.getPath('userData'), {
+  available: () => { try { return safeStorage.isEncryptionAvailable(); } catch { return false; } },
+  encrypt: text => safeStorage.encryptString(text).toString('base64'),
+  decrypt: b64 => safeStorage.decryptString(Buffer.from(b64, 'base64')),
+});
+const ocServer = createOpencodeServer({ settings: () => ocSettings.server() });
+// El proveedor compatible con OpenAI de Ajustes se registra en el servidor (también en uno de Docker),
+// con su clave aparte, sin escribir archivos de configuración.
+const OC_PROVIDER = 'astro-openai';
+let ocSynced = null;
+function ocReady() {
+  if (!ocSynced) {
+    ocSynced = ocServer.ready().then(async info => {
+      const o = ocSettings.openai();
+      if (o.baseURL && o.models.length) {
+        const models = Object.fromEntries(o.models.map(m => [m, { name: m }]));
+        await ocServer.request('PATCH', '/global/config', { body: { provider: { [OC_PROVIDER]: { npm: '@ai-sdk/openai-compatible', name: o.name || 'Compatible con OpenAI', options: { baseURL: o.baseURL }, models } } } });
+        if (o.key) await ocServer.request('PUT', `/auth/${OC_PROVIDER}`, { body: { type: 'api', key: o.key } });
+      }
+      return info;
+    });
+    ocSynced.catch(() => { ocSynced = null; });
+  }
+  return ocSynced;
+}
+// Modelos conectados (y su contexto), pedidos una vez por conexión.
+let ocProviders = null;
+async function ocModels() {
+  if (!ocProviders) {
+    ocProviders = ocReady().then(() => ocServer.request('GET', '/provider')).then(j => {
+      const out = [];
+      for (const p of j.all || []) {
+        if (!(j.connected || []).includes(p.id)) continue;
+        for (const [id, m] of Object.entries(p.models || {})) {
+          out.push({ id: `${p.id}/${id}`, name: m.name || id, provider: p.name || p.id, context: (m.limit && m.limit.context) || null, free: p.id === 'opencode' && !!(m.cost && !m.cost.input && !m.cost.output) });
+        }
+      }
+      return out;
+    });
+    ocProviders.catch(() => { ocProviders = null; });
+  }
+  return ocProviders;
+}
+const ocContext = async model => ((await ocModels()).find(m => m.id === model) || {}).context || null;
+// Cambiaron los ajustes de conexión: se suelta todo y las conversaciones de OpenCode empiezan de nuevo.
+function ocReset() {
+  for (const [conv, s] of conversations) if (s.engine === 'opencode') endConversation(conv);
+  ocServer.reset();
+  ocSynced = null;
+  ocProviders = null;
+}
 
 /* ---------- capturas de pantalla ---------- */
 // Electron 44 tiene un portapapeles asíncrono al estilo de navigator.clipboard.
@@ -194,10 +251,19 @@ function freshSession(cwd, extra = {}) {
   s.folder = cwd;
   return s;
 }
-function conversationFor(conv, resume, cwd = config.workingDirectory) {
+// Una conversación con OpenCode: el servidor es único y cada conversación es una sesión suya.
+function ocSession(cwd, model, resume = null) {
+  ocReady().catch(() => {});
+  const s = createOpencodeSession({ server: ocServer, cwd, model: model || ocSettings.get().defaultModel, allowedTools: config.allowedTools, resume, contextWindow: ocContext });
+  s.folder = cwd;
+  return s;
+}
+const engineOf = s => s.engine || 'claude';
+function conversationFor(conv, resume, cwd = config.workingDirectory, engine = 'claude', model = null) {
   let s = conversations.get(conv);
-  // Una conversación pertenece a su carpeta: si la sesión cambió de carpeta, empieza otra.
-  if (s && !sameDir(s.folder, cwd)) { endConversation(conv); s = null; }
+  // Una conversación pertenece a su carpeta y a su motor: si la sesión cambió, empieza otra.
+  if (s && (!sameDir(s.folder, cwd) || engineOf(s) !== engine || (engine === 'opencode' && model && s.model !== model))) { endConversation(conv); s = null; }
+  if (!s && engine === 'opencode') { s = ocSession(cwd, model, resume); conversations.set(conv, s); }
   if (!s) {
     if (resume) s = freshSession(cwd, { resume });
     else if (isDefault(cwd)) { s = askPool.take(); s.folder = cwd; }
@@ -210,10 +276,11 @@ function conversationFor(conv, resume, cwd = config.workingDirectory) {
 
 // La interfaz avisa al abrir la pregunta: si la sesión ya tiene conversación, se despierta su proceso
 // (con --resume si se cerró por inactividad); si es nueva, se deja uno listo para su carpeta.
-function warmFor(conv, cwd = config.workingDirectory) {
+function warmFor(conv, cwd = config.workingDirectory, engine = 'claude') {
+  if (engine === 'opencode') { ocReady().catch(() => {}); return; }
   if (!config.warmPool) return;
   const s = conversations.get(conv);
-  if (s && sameDir(s.folder, cwd)) { if (!s.busy) s.warm(); return; }
+  if (s && sameDir(s.folder, cwd) && engineOf(s) === 'claude') { if (!s.busy) s.warm(); return; }
   if (s) endConversation(conv);
   if (isDefault(cwd)) prewarm(askPool);
   else conversations.set(conv, freshSession(cwd, { idleMs: SPARE_IDLE_MS }).warm());
@@ -224,8 +291,9 @@ function endConversation(conv) {
 }
 // Retomar: la sesión de la interfaz pasa a atender una conversación guardada. El proceso arranca ya
 // (con --resume) para que la primera pregunta no espere al CLI.
-function resumeConversation(conv, sessionId, cwd = config.workingDirectory) {
+function resumeConversation(conv, sessionId, cwd = config.workingDirectory, engine = 'claude', model = null) {
   endConversation(conv);
+  if (engine === 'opencode') { conversations.set(conv, ocSession(cwd, model, sessionId)); return; }
   const s = freshSession(cwd, { resume: sessionId });
   conversations.set(conv, config.warmPool ? s.warm() : s);
 }
@@ -233,8 +301,8 @@ function resumeConversation(conv, sessionId, cwd = config.workingDirectory) {
 // Cada conversación nueva anuncia sus comandos "/"; si cambiaron, la interfaz recibe la lista nueva.
 function relayEvent(id, ev, cwd) {
   if (ev.type === 'start') {
-    // La lista de comandos / es grande: solo viaja a la interfaz si cambió.
-    if (commands.update(ev, cwd)) send('astro:commands', commands.get());
+    // La lista de comandos / es grande: solo viaja a la interfaz si cambió (OpenCode no la anuncia).
+    if (Array.isArray(ev.slashCommands) && commands.update(ev, cwd)) send('astro:commands', commands.get());
     ev = { type: 'start', sessionId: ev.sessionId };
   }
   send('claude:event', { id, ...ev });
@@ -384,7 +452,7 @@ ipcMain.on('prefs:set', (_e, { key, value }) => setPref(key, value));
 ipcMain.on('update:install', () => updates && updates.install());
 ipcMain.on('capture:discard', (_e, id) => captures.discard(id));
 
-ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, cwd: dir }) => {
+ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, cwd: dir, engine = 'claude', model = null }) => {
   const cwd = folderOf(dir);
   let prompt = results ? integrationPrompt(results) : text;
   if (captureId && !results) {
@@ -396,7 +464,7 @@ ipcMain.handle('claude:ask', (_e, { id, conv, text, results, resume, captureId, 
   }
   let handle;
   try {
-    handle = conversationFor(conv, resume, cwd).send(prompt, ev => relayEvent(id, ev, cwd));
+    handle = conversationFor(conv, resume, cwd, engine === 'opencode' ? 'opencode' : 'claude', model).send(prompt, ev => relayEvent(id, ev, cwd));
   } catch (e) {
     return { ok: false, code: e.code || 'not_found', message: e.message };
   }
@@ -417,29 +485,91 @@ ipcMain.handle('claude:agent', (_e, { id, name, task, transcript, cwd: dir }) =>
   return toReply(track(id, handle).finally(() => s.close()), r => ({ text: r.text }));
 });
 
+// Otro mensaje mientras Claude trabaja: se le escribe al mismo proceso y lo incorpora a la tarea.
+ipcMain.handle('claude:queue', (_e, { conv, id, text }) => {
+  const s = conversations.get(conv);
+  return { ok: !!(s && s.busy && s.queue(String(text || ''), String(id || ''))) };
+});
 ipcMain.on('claude:cancel', (_e, id) => {
   const cancel = running.get(id);
   if (cancel) cancel();
 });
 ipcMain.on('claude:end', (_e, conv) => endConversation(conv));
-ipcMain.on('claude:prewarm', (_e, { conv, cwd }) => warmFor(conv, folderOf(cwd)));
-ipcMain.on('claude:resume', (_e, { conv, sessionId, cwd }) => {
-  if (typeof sessionId === 'string' && /^[\w-]{8,80}$/.test(sessionId)) resumeConversation(conv, sessionId, folderOf(cwd));
+ipcMain.on('claude:prewarm', (_e, { conv, cwd, engine }) => warmFor(conv, folderOf(cwd), engine));
+ipcMain.on('claude:resume', (_e, { conv, sessionId, cwd, engine, model }) => {
+  if (typeof sessionId === 'string' && /^[\w-]{8,80}$/.test(sessionId)) resumeConversation(conv, sessionId, folderOf(cwd), engine === 'opencode' ? 'opencode' : 'claude', model);
 });
-ipcMain.handle('history:conversation', (_e, { cwd: dir, id }) => {
+ipcMain.handle('history:conversation', async (_e, { cwd: dir, id, engine }) => {
+  if (engine === 'opencode') {
+    try {
+      const msgs = await ocServer.request('GET', `/session/${encodeURIComponent(id)}/message`, { dir: ocServer.dirFor(folderOf(dir)) });
+      return { ok: true, items: ocMap.conversationItems(msgs) };
+    } catch (e) { return { ok: false, message: e.message, items: [] }; }
+  }
   try {
     return { ok: true, items: readConversation({ claudeHome: path.join(os.homedir(), '.claude'), cwd: folderOf(dir), id }) };
   } catch (e) {
     return { ok: false, message: e.message, items: [] };
   }
 });
-ipcMain.handle('history:list', (_e, dir) => {
+ipcMain.handle('history:list', async (_e, dir, engine) => {
   const cwd = folderOf(dir);
+  if (engine === 'opencode') {
+    try {
+      await ocReady();
+      const sdir = ocServer.dirFor(cwd);
+      const list = await ocServer.request('GET', '/session', { dir: sdir, query: { roots: 'true', limit: '30' } });
+      const sessions = (Array.isArray(list) ? list : []).filter(x => x.directory === sdir).sort((a, b) => b.time.updated - a.time.updated).slice(0, 30);
+      const items = await Promise.all(sessions.map(async x => ocMap.listItem(x, await ocServer.request('GET', `/session/${x.id}/message`, { dir: sdir, query: { limit: '20' } }).catch(() => []))));
+      return { ok: true, folder: cwd, items: items.filter(x => x.questions) };
+    } catch (e) { return { ok: false, message: e.message, items: [] }; }
+  }
   try {
     return { ok: true, folder: cwd, items: listConversations({ claudeHome: path.join(os.homedir(), '.claude'), cwd }) };
   } catch (e) {
     return { ok: false, message: e.message, items: [] };
   }
+});
+
+/* ---------- OpenCode: ajustes, modelos, comandos, permisos ---------- */
+ipcMain.handle('opencode:settings', () => ocSettings.public());
+ipcMain.handle('opencode:save', (_e, input) => {
+  const before = JSON.stringify([ocSettings.server(), ocSettings.openai()]);
+  const pub = ocSettings.set(input || {});
+  if (JSON.stringify([ocSettings.server(), ocSettings.openai()]) !== before) ocReset();
+  return pub;
+});
+ipcMain.handle('opencode:status', async () => {
+  try {
+    const info = await ocReady();
+    return { ok: true, version: info.version, supported: info.supported, mode: ocSettings.get().mode };
+  } catch (e) { return { ok: false, code: e.code || 'failed', message: e.message }; }
+});
+ipcMain.handle('opencode:models', async () => {
+  try { return { ok: true, items: await ocModels() }; } catch (e) { return { ok: false, message: e.message, items: [] }; }
+});
+ipcMain.handle('opencode:commands', async (_e, dir) => {
+  try {
+    await ocReady();
+    return { ok: true, items: ocMap.commandList(await ocServer.request('GET', '/command', { dir: ocServer.dirFor(folderOf(dir)) })) };
+  } catch (e) { return { ok: false, message: e.message, items: [] }; }
+});
+ipcMain.handle('opencode:reply', async (_e, { conv, id, reply }) => {
+  const s = conversations.get(conv);
+  if (!s || !s.reply || !['once', 'always', 'reject'].includes(reply)) return { ok: false };
+  try { await s.reply(String(id), reply); return { ok: true }; } catch (e) { return { ok: false, message: e.message }; }
+});
+// Copilot: el servidor da una página de GitHub y un código; al autorizar, sus modelos quedan conectados.
+ipcMain.handle('opencode:copilot', async () => {
+  try {
+    await ocReady();
+    const a = await ocServer.request('POST', '/provider/github-copilot/oauth/authorize', { body: { method: 0, inputs: { deploymentType: 'github.com' } } });
+    if (a && a.url) shell.openExternal(a.url);
+    ocServer.request('POST', '/provider/github-copilot/oauth/callback', { body: { method: 0 } })
+      .then(() => { ocProviders = null; send('astro:opencode', { type: 'copilot', ok: true }); })
+      .catch(e => send('astro:opencode', { type: 'copilot', ok: false, message: e.message }));
+    return { ok: true, url: a && a.url, instructions: a && a.instructions };
+  } catch (e) { return { ok: false, message: e.message }; }
 });
 
 /* ---------- arranque ---------- */
@@ -507,6 +637,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   for (const cancel of running.values()) cancel();
   for (const s of conversations.values()) s.close();
+  ocServer.close();
   captures.stop();
   askPool.closeAll();
   agentPool.closeAll();
