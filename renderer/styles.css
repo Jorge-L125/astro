@@ -401,3 +401,25 @@ body.tint .accs button,body.tint .tool,body.tint .quit{border-color:color-mix(in
 body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- OpenCode: selector de motor, permisos en vivo y ajustes ---------- */
+.fmenu{max-height:260px;overflow-y:auto}
+.fmenu button{flex:none}
+.fmenu .muted{margin:4px 9px;font-size:12.5px;color:var(--muted)}
+.more{border:0;background:transparent;color:var(--accent);font-size:12.5px;font-weight:600;padding:6px 0 0;cursor:pointer}
+.more:hover{text-decoration:underline}
+.cloud.perm.live .row{flex-wrap:wrap}
+.ocform [hidden]{display:none!important}
+.ocform label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-top:12px}
+.ocform label small{display:block;font-weight:400}
+.ocform label .more{padding:0 0 0 6px;font-size:12px}
+.ocform input,.ocform textarea,.ocform select{display:block;width:100%;box-sizing:border-box;margin-top:4px;border:1px solid var(--hair);background:var(--sheet);color:var(--ink);border-radius:10px;padding:7px 10px;font:inherit;font-size:13px;outline:none}
+.ocform input:focus,.ocform textarea:focus,.ocform select:focus{border-color:var(--accent)}
+.ocform input:disabled{opacity:.6}
+.ocform textarea{font-family:var(--mono);font-size:12px;resize:vertical}
+.ocform .seg button{white-space:normal}
+.ocform .hint{display:block;margin-top:6px;font-size:11.5px;color:var(--muted)}
+.ocform .ocmsg{margin:8px 0;font-size:13px;overflow-wrap:anywhere}
+.ocform .ocmsg:empty{display:none}
+.ocform .ocmsg.err{color:var(--err)}
+.ocform ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}

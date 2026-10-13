@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder', 'astro:update'];
+const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder', 'astro:update', 'astro:opencode'];
 
 contextBridge.exposeInMainWorld('astro', {
   setIgnore: ignore => ipcRenderer.send('mouse:ignore', ignore),
@@ -12,10 +12,10 @@ contextBridge.exposeInMainWorld('astro', {
   cancel: id => ipcRenderer.send('claude:cancel', id),
   queue: req => ipcRenderer.invoke('claude:queue', req),
   endConversation: conv => ipcRenderer.send('claude:end', conv),
-  prewarm: (conv, cwd) => ipcRenderer.send('claude:prewarm', { conv, cwd }),
-  resumeConversation: (conv, sessionId, cwd) => ipcRenderer.send('claude:resume', { conv, sessionId, cwd }),
-  history: cwd => ipcRenderer.invoke('history:list', cwd),
-  conversation: (cwd, id) => ipcRenderer.invoke('history:conversation', { cwd, id }),
+  prewarm: (conv, cwd, engine) => ipcRenderer.send('claude:prewarm', { conv, cwd, engine }),
+  resumeConversation: (conv, sessionId, cwd, engine, model) => ipcRenderer.send('claude:resume', { conv, sessionId, cwd, engine, model }),
+  history: (cwd, engine) => ipcRenderer.invoke('history:list', cwd, engine),
+  conversation: (cwd, id, engine) => ipcRenderer.invoke('history:conversation', { cwd, id, engine }),
   pickFolder: current => ipcRenderer.invoke('folder:pick', current),
   grantTools: names => ipcRenderer.invoke('tools:grant', names),
   revokeTool: name => ipcRenderer.invoke('tools:revoke', name),
@@ -23,6 +23,14 @@ contextBridge.exposeInMainWorld('astro', {
   setPref: (key, value) => ipcRenderer.send('prefs:set', { key, value }),
   installUpdate: () => ipcRenderer.send('update:install'),
   discardCapture: id => ipcRenderer.send('capture:discard', id),
+  // OpenCode
+  opencodeSettings: () => ipcRenderer.invoke('opencode:settings'),
+  opencodeSave: input => ipcRenderer.invoke('opencode:save', input),
+  opencodeStatus: () => ipcRenderer.invoke('opencode:status'),
+  opencodeModels: () => ipcRenderer.invoke('opencode:models'),
+  opencodeCommands: cwd => ipcRenderer.invoke('opencode:commands', cwd),
+  opencodeReply: req => ipcRenderer.invoke('opencode:reply', req),
+  opencodeCopilot: () => ipcRenderer.invoke('opencode:copilot'),
   on(channel, fn) {
     if (!EVENTS.includes(channel)) return () => {};
     const handler = (_e, payload) => fn(payload);

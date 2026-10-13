@@ -3,6 +3,7 @@ import { esc, inline, md, buildSheets, previewText } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 import { groupDenials } from './tools.js';
+import { opencodeForm, opencodeEvent } from './opencode-panel.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
 import { outfitFor, choose, withMode, loadOutfitPrefs, saveOutfitPrefs, outfitRequest, seasonSuggestion } from './outfits.js';
@@ -43,14 +44,16 @@ function lum(hex) {
 }
 
 /* ---------- sesiones ---------- */
+// Motor y modelo de las sesiones nuevas (Ajustes › Motor); llegan del proceso principal al arrancar.
+let ocPrefs = { defaultEngine: 'claude', defaultModel: 'opencode/big-pickle' };
 // Cada sesión es una conversación propia con Claude Code: su historial, sus nubes y sus ayudantes.
 let seq = 0;
-function mkSession(name, color, folder = null) {
+function mkSession(name, color, folder = null, engine = ocPrefs.defaultEngine, model = ocPrefs.defaultModel) {
   const clouds = document.createElement('div');
   clouds.className = 'clouds';
   watchFade(clouds);
   clouds.setAttribute('aria-live', 'polite');
-  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, inflight: [], later: [], folder, steps: [], stepsT0: 0, acc: outfitFor(outfitPrefs, folder) };
+  return { id: ++seq, name, color, renamed: false, claudeId: null, history: [], busy: false, mood: 'neutral', clouds, agents: [], tasksEl: null, ids: new Set(), stopped: false, pending: null, inflight: [], later: [], folder, engine, model, steps: [], stepsT0: 0, acc: outfitFor(outfitPrefs, folder) };
 }
 const sessions = [];
 let active = mkSession('Principal', cfg.color);
@@ -301,10 +304,13 @@ function openAsk() {
   const ta = askEl.querySelector('textarea'), b = askEl.querySelector('.send');
   if (active.busy) ta.placeholder = 'Escríbele mientras trabaja…';
   // Mientras se escribe, Claude Code arranca (o despierta) para que la respuesta no espere al CLI.
-  api.prewarm(active.id, active.folder);
+  api.prewarm(active.id, active.folder, active.engine);
+  if (active.engine === 'opencode') loadOcCommands(active.folder);
   const menu = commandMenu(ta);
   askEl.prepend(menu.el);
-  askEl.prepend(folderButton(active));
+  const fw = folderButton(active);
+  addEngineButton(fw, active);
+  askEl.prepend(fw);
   ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); stickToBottom(active); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
@@ -331,6 +337,13 @@ function openAsk() {
 let commands = [];
 api.on('astro:commands', list => { commands = Array.isArray(list) ? list : commands; });
 const KIND_LABEL = { local: 'Astro', info: 'Info', task: 'Tarea', skill: 'Skill' };
+// Con OpenCode, el menú lleva sus comandos (los del servidor para esa carpeta) y los de Astro.
+let ocCommands = { folder: null, items: [] };
+function loadOcCommands(folder) {
+  if (ocCommands.folder === folder) return;
+  api.opencodeCommands(folder).then(r => { if (r && r.ok) ocCommands = { folder, items: r.items }; }).catch(() => {});
+}
+const commandsFor = s => (s.engine === 'opencode' ? commands.filter(c => c.kind === 'local').concat(ocCommands.folder === s.folder ? ocCommands.items : []) : commands);
 
 function commandMenu(ta) {
   const el = document.createElement('div');
@@ -365,7 +378,7 @@ function commandMenu(ta) {
   return {
     el,
     update() {
-      items = suggest(commands, ta.value);
+      items = suggest(commandsFor(active), ta.value);
       sel = 0;
       el.hidden = !items.length;
       if (items.length) render();
@@ -657,7 +670,7 @@ async function call(s, kind, payload, onEvent) {
   s.ids.add(id);
   if (onEvent) listeners.set(id, onEvent);
   try {
-    const r = await api[kind]({ id, cwd: s.folder, ...payload });
+    const r = await api[kind]({ id, cwd: s.folder, ...(kind === 'ask' ? { engine: s.engine, model: s.model } : {}), ...payload });
     if (!r.ok) throw { code: r.code, message: r.message };
     return r;
   } finally {
@@ -669,14 +682,18 @@ async function call(s, kind, payload, onEvent) {
 function cancelAll(s) { s.stopped = true; for (const id of s.ids) api.cancel(id); }
 
 const transcript = s => s.history.map(h => (h.role === 'user' ? 'Usuario: ' + h.text : 'Astro: ' + JSON.stringify(h.data))).join('\n');
-function errLines(e) {
+function errLines(e, s) {
   const code = e && e.code;
+  if (code === 'opencode_unreachable') return ['No puedo conectar con OpenCode.', 'Revisa que el servidor esté encendido y su dirección en Ajustes › OpenCode.'];
+  if (code === 'opencode_auth') return ['OpenCode no aceptó la contraseña.', 'Cámbiala en Ajustes › OpenCode.'];
+  if (code === 'opencode_missing') return ['No encuentro el comando opencode en este equipo.', 'Instálalo o usa un servidor ya en marcha (Ajustes › OpenCode).'];
+  if (code === 'opencode_path') return ['Esta carpeta no está compartida con el servidor de OpenCode.', 'Añádela en Ajustes › OpenCode › Carpetas compartidas.'];
   if (code === 'cancelled') return ['Listo, me detuve.'];
   if (code === 'not_found') return ['No encuentro el comando claude. ¿Está instalado y en el PATH?'];
   if (code === 'capture_gone') return ['Esa captura ya caducó.', 'Haz otra y vuelve a preguntarme.'];
   if (code === 'bad') return ['Claude respondió en un formato que no entendí. ¿Lo intentamos otra vez?'];
   const msg = String((e && e.message) || '').replace(/\s+/g, ' ').slice(0, 110);
-  return ['Algo falló al hablar con Claude.', msg || 'Prueba de nuevo en un momento.'];
+  return [`Algo falló al hablar con ${s && s.engine === 'opencode' ? 'OpenCode' : 'Claude'}.`, msg || 'Prueba de nuevo en un momento.'];
 }
 // Botón de detener como el de Claude: un cuadrado dentro de un círculo.
 function stopButton(s) {
@@ -757,6 +774,7 @@ const progressInto = (el, s) => ev => {
   if (ev.type === 'queued-read') { queuedRead(s, ev.qid); return; }
   const st = el.querySelector('.status');
   const say = text => { if (st) st.textContent = text; };
+  if (ev.type === 'permission') { say('Esperando tu permiso…'); livePermission(s, ev); return; }
   const find = key => s.agents.find(a => a.key === key);
   if (ev.type === 'tool') {
     // Lanzar un subagente ya tiene su propio paso y su estado («N subagentes trabajando»).
@@ -929,7 +947,7 @@ async function ask(s, text, capture = null, opts = {}) {
   // Si es sobre el límite del plan, eso lo sabe /usage.
   const uq = !capture && !cmd ? usageQuestion(text) : null;
   if (uq === 'context') { explainContext(s, text); return; }
-  if (uq === 'plan') cmd = parseSlash('/usage');
+  if (uq === 'plan' && s.engine !== 'opencode') cmd = parseSlash('/usage');
   // "Ponte el sombrero de pirata": lo hace Astro, sin llamar a Claude.
   const oq = !capture && !cmd ? outfitRequest(text) : null;
   if (oq) { if (s === active) { closeAsk(); closePanel(); } setAccessory(oq, true); return; }
@@ -996,11 +1014,12 @@ async function ask(s, text, capture = null, opts = {}) {
       s.history.push({ role: 'bot', data });
     }
   } catch (e) {
-    data = { mood: 'worried', lines: errLines(e) };
+    data = { mood: 'worried', lines: errLines(e, s) };
   }
   // Los subagentes que siguieran en marcha (p. ej. al detener) se dan por terminados.
   for (const a of s.agents) if (a.internal && a.status === 'working') { a.output = a.output || 'Se detuvo antes de terminar.'; setAgentStatus(s, a, 'error'); }
   t.remove();
+  s.clouds.querySelectorAll('.cloud.perm.live').forEach(c => c.remove()); // permisos que ya no esperan
   s.stepsLink = null;
   for (const line of data.lines.slice(0, 2)) { const c = cloud(s); await typeInto(s, c, String(line)); await wait(250); }
   setMood(s, data.mood || 'neutral');
@@ -1200,7 +1219,7 @@ async function openHistory() {
   const pb = $('pbody');
   pb.innerHTML = '<p class="muted">Leyendo la conversación…</p>';
   let items = [];
-  if (s.claudeId) { try { items = (await api.conversation(s.folder, s.claudeId)).items || []; } catch { items = []; } }
+  if (s.claudeId) { try { items = (await api.conversation(s.folder, s.claudeId, s.engine)).items || []; } catch { items = []; } }
   if (!items.length) items = s.history.map(h => (h.role === 'user' ? { role: 'user', text: h.text } : { role: 'bot', data: h.data, text: '' }));
   if (!body.classList.contains('panel-open') || $('ptitle').textContent !== 'Historial') return;
   const asked = items.filter(m => m.role === 'user').length;
@@ -1253,11 +1272,11 @@ async function openResume() {
   const pb = $('pbody');
   pb.innerHTML = '<p class="muted">Leyendo las conversaciones guardadas…</p>';
   let res;
-  try { res = await api.history(active.folder); } catch (e) { res = { ok: false, message: e.message, items: [] }; }
+  try { res = await api.history(active.folder, active.engine); } catch (e) { res = { ok: false, message: e.message, items: [] }; }
   if (!body.classList.contains('panel-open') || $('ptitle').textContent !== 'Retomar una conversación') return;
   const items = res.items || [];
   $('psub').textContent = res.ok
-    ? `${items.length === 1 ? '1 conversación' : items.length + ' conversaciones'} en ${res.folder}`
+    ? `${items.length === 1 ? '1 conversación' : items.length + ' conversaciones'}${active.engine === 'opencode' ? ' de OpenCode' : ''} en ${res.folder}`
     : 'No pude leer las conversaciones';
   pb.innerHTML = '';
   if (!res.ok) { pb.innerHTML = '<p class="muted"></p>'; pb.firstChild.textContent = res.message || 'Error desconocido'; return; }
@@ -1278,7 +1297,7 @@ async function openResume() {
       b.className = 'convo';
       b.innerHTML = '<b></b><small class="meta"></small><small class="last"></small>';
       b.querySelector('b').textContent = c.title;
-      const kind = c.astro ? 'Astro' : 'Terminal';
+      const kind = c.engine === 'opencode' ? 'OpenCode' : c.astro ? 'Astro' : 'Terminal';
       b.querySelector('.meta').textContent = `${relTime(c.mtime)} · ${kind} · ${c.questions === 1 ? '1 pregunta' : c.questions + ' preguntas'}${open ? ` · abierta en «${open.name}»` : ''}`;
       const last = b.querySelector('.last');
       if (c.last && c.last !== c.title) last.textContent = 'Última: ' + c.last; else last.remove();
@@ -1296,7 +1315,7 @@ async function openResume() {
 async function resumeInto(s, c) {
   if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
   closePanel();
-  api.resumeConversation(s.id, c.id, s.folder);
+  api.resumeConversation(s.id, c.id, s.folder, s.engine, s.model);
   s.claudeId = c.id;
   s.ctx = null; // el tamaño de la conversación retomada llega con su primera respuesta
   if (s === active) renderContext();
@@ -1383,6 +1402,7 @@ function folderButton(s) {
   };
   b.onmousedown = e => e.preventDefault();
   b.onclick = () => {
+    wrap.querySelectorAll('.fmenu').forEach(m => { if (m !== list) m.hidden = true; });
     list.innerHTML = '';
     if (defaultFolder && !sameDir(defaultFolder, s.folder)) item(`🏠 ${baseName(defaultFolder)} (la de siempre)`, defaultFolder, () => changeFolder(s, defaultFolder));
     for (const d of recentFolders.filter(d => !sameDir(d, s.folder))) item('📁 ' + baseName(d), d, () => changeFolder(s, d));
@@ -1392,6 +1412,124 @@ function folderButton(s) {
   wrap.append(b, list);
   return wrap;
 }
+
+/* ---------- motor: Claude Code u OpenCode ---------- */
+// Cada sesión habla con un motor. Cambiar de motor empieza otra conversación; cambiar de modelo dentro
+// de OpenCode sigue la misma.
+const modelName = id => String(id || '').split('/').slice(1).join('/') || String(id || '');
+function engineLabel(s) { return s.engine === 'opencode' ? '◇ ' + modelName(s.model) : '✳ Claude Code'; }
+// «✳ Claude Code ▾» junto a la carpeta, con los modelos de OpenCode que estén conectados.
+function addEngineButton(wrap, s) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'fbtn';
+  b.title = s.engine === 'opencode' ? `Motor: OpenCode · ${s.model}` : 'Motor: Claude Code';
+  b.setAttribute('aria-haspopup', 'menu');
+  b.innerHTML = '<span class="nm"></span><span aria-hidden="true">▾</span>';
+  b.querySelector('.nm').textContent = engineLabel(s);
+  const list = document.createElement('div');
+  list.className = 'fmenu'; list.hidden = true; list.setAttribute('role', 'menu');
+  const item = (label, title, fn) => {
+    const it = document.createElement('button');
+    it.type = 'button'; it.setAttribute('role', 'menuitem');
+    it.textContent = label; it.title = title;
+    it.onmousedown = e => e.preventDefault();
+    it.onclick = () => { list.hidden = true; fn(); };
+    list.append(it);
+    return it;
+  };
+  b.onmousedown = e => e.preventDefault();
+  b.onclick = async () => {
+    wrap.querySelectorAll('.fmenu').forEach(m => { if (m !== list) m.hidden = true; });
+    if (!list.hidden) { list.hidden = true; return; }
+    list.innerHTML = '';
+    if (s.engine !== 'claude') item('✳ Claude Code', 'Usa Claude Code con tu cuenta de Claude', () => changeEngine(s, 'claude', null));
+    const wait = document.createElement('p');
+    wait.className = 'muted'; wait.textContent = 'Buscando modelos de OpenCode…';
+    list.append(wait);
+    list.hidden = false;
+    const r = await api.opencodeModels().catch(e => ({ ok: false, message: e.message, items: [] }));
+    wait.remove();
+    if (!r.ok) item('◇ OpenCode no responde: revisar ajustes', r.message || '', openOpencodeSettings);
+    for (const m of r.items.filter(m => m.id !== s.model || s.engine !== 'opencode')) {
+      item(`◇ ${m.name} · ${m.provider}${m.free ? ' (gratis)' : ''}`, m.id, () => changeEngine(s, 'opencode', m.id));
+    }
+    item('Ajustes de OpenCode…', '', openOpencodeSettings);
+  };
+  wrap.querySelector('.fbtn').after(b);
+  wrap.append(list);
+}
+function changeEngine(s, engine, model) {
+  if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
+  if (engine === 'opencode' && s.engine === 'opencode') {
+    if (model === s.model) return;
+    s.model = model;
+    if (s === active) { closeAsk(); openAsk(); }
+    quip(`Sigo con ${modelName(model)}.`);
+    return;
+  }
+  if (engine === s.engine) return;
+  const name = engine === 'opencode' ? 'OpenCode' : 'Claude Code';
+  if (!s.history.length && !s.claudeId) { applyEngine(s, engine, model); return; }
+  askConfirm(s, `¿Paso «${s.name}» a ${name}?`,
+    `Empezamos una conversación nueva con ${name}. La actual queda guardada y la puedes retomar con /resume desde ${s.engine === 'opencode' ? 'OpenCode' : 'Claude Code'}.`,
+    'Sí, cambiar', () => applyEngine(s, engine, model));
+}
+function applyEngine(s, engine, model) {
+  s.engine = engine;
+  s.model = engine === 'opencode' ? model || ocPrefs.defaultModel : null;
+  s.claudeId = null; s.history.length = 0;
+  s.ctx = null;
+  if (s === active) renderContext();
+  api.endConversation(s.id);
+  if (s === active) { closeAsk(); closePanel(); }
+  clearClouds(s); clearAgents(s);
+  renderSessions();
+  gota.act('hop');
+  greet(s, engine === 'opencode' ? `Ahora trabajo con OpenCode (${modelName(s.model)}). ¿Qué hacemos?` : 'Volví a Claude Code. ¿Qué hacemos?');
+}
+
+// OpenCode pide permiso en el momento (Claude Code lo cuenta al terminar): la nube espera la respuesta.
+function livePermission(s, ev) {
+  const [it] = groupDenials([{ tool: ev.tool, input: ev.input }]);
+  const c = cloud(s, 'perm');
+  c.classList.add('live');
+  c.innerHTML = '<h3></h3><ul><li><span class="ico" aria-hidden="true"></span><span><b></b><code></code></span></li></ul><p></p><div class="row"><button class="btn once">Permitir</button><button class="opt always">Siempre</button><button class="opt no">No</button></div>';
+  c.querySelector('h3').textContent = ev.agent ? 'Un subagente necesita tu permiso' : 'Necesito tu permiso para seguir';
+  c.querySelector('.ico').textContent = it.icon;
+  c.querySelector('b').textContent = it.label;
+  c.querySelector('code').textContent = it.detail;
+  c.querySelector('p').textContent = (ev.always && ev.always.length ? `«Siempre» lo permite sin volver a preguntar en esta conversación (${ev.always.slice(0, 3).join(', ')}).` : '«Siempre» lo permite sin volver a preguntar en esta conversación.');
+  if (it.risk) c.classList.add('risky');
+  const answer = async reply => {
+    c.remove();
+    gota.act('nod');
+    const r = await api.opencodeReply({ conv: s.id, id: ev.pid, reply }).catch(() => ({ ok: false }));
+    if (!r.ok) quip('No pude responder a OpenCode.');
+  };
+  c.querySelector('.once').onclick = () => answer('once');
+  c.querySelector('.always').onclick = () => answer('always');
+  c.querySelector('.no').onclick = () => answer('reject');
+  stickToBottom(s);
+  if (s === active) gota.react('worried', 1200);
+  else gota.flagSession(s.id, `${s.name} · Permiso`, 'done');
+}
+
+// Ajustes de OpenCode en el panel lateral (renderer/opencode-panel.js).
+function openOpencodeSettings() {
+  if (gota.isMinimized()) { restoreThen(openOpencodeSettings); return; }
+  closeAsk(); toggleSettings(false);
+  panelAgent = null;
+  openShell('Ajustes de OpenCode', 'Otro motor para Astro', blobIco(active.color));
+  $('pbody').append(opencodeForm(api, { onSaved: p => { ocPrefs = p; showEngineSeg(); } }));
+}
+function showEngineSeg() {
+  $('seg-engine').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === ocPrefs.defaultEngine)));
+}
+$('seg-engine').querySelectorAll('button').forEach(b => {
+  b.onclick = async () => { ocPrefs = await api.opencodeSave({ defaultEngine: b.dataset.v }); showEngineSeg(); };
+});
+$('bOpencode').onclick = openOpencodeSettings;
+api.on('astro:opencode', ev => opencodeEvent(ev));
 
 // `astro` en una terminal: a la sesión que ya trabaja en esa carpeta; si no hay, la principal pasa a
 // esa carpeta si está libre; si está ocupada, se abre una sesión nueva allí.
@@ -1423,7 +1561,7 @@ function renderSessions() {
     b.querySelector('.dot').style.background = s.color;
     b.querySelector('.nm').textContent = s.name;
     b.querySelector('kbd').textContent = altKey(i + 1);
-    b.title = s.folder ? `${s.name} · ${s.folder}` : s.name;
+    b.title = (s.folder ? `${s.name} · ${s.folder}` : s.name) + (s.engine === 'opencode' ? ' · OpenCode' : '');
     b.onclick = () => switchTo(s);
     const x = document.createElement('span');
     x.className = 'cx'; x.textContent = '×'; x.title = 'Cerrar sesión';
@@ -1585,6 +1723,10 @@ api.config().then(async c => {
   recentFolders = (await api.checkFolders(recentFolders).catch(() => recentFolders)).filter(d => !sameDir(d, defaultFolder));
   // Si `astro` ya colocó la sesión en una carpeta mientras arrancaba, se respeta.
   for (const s of sessions) if (!s.folder) s.folder = s === active && c.launchDir ? c.launchDir : defaultFolder;
+  // Motor por defecto: las sesiones que aún no han hablado lo toman (las demás siguen con el suyo).
+  try { ocPrefs = await api.opencodeSettings(); } catch { /* sin ajustes: Claude Code */ }
+  showEngineSeg();
+  for (const s of sessions) if (!s.history.length && !s.claudeId) { s.engine = ocPrefs.defaultEngine; s.model = ocPrefs.defaultModel; }
   markReady();
   rememberFolder(active.folder);
   if (legacyAcc && active.folder) { outfitPrefs = choose(outfitPrefs, active.folder, legacyAcc); legacyAcc = null; saveOutfits(); }
@@ -1647,8 +1789,8 @@ if (new URLSearchParams(location.search).has('debug')) {
       for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-end', key: 'k' + i, ok: i % 7 !== 3, text: 'Resultado ' + (i + 1) }), 6000 + i * 400);
       setTimeout(() => { t.remove(); s.stepsLink = null; setBusy(s, false); showStepsButton(s); }, 6000 + n * 400 + 1500);
     },
-    folders: () => sessions.map(s => ({ name: s.name, folder: s.folder, busy: s.busy, active: s === active })),
-    resumeFirst: async () => { const r = await api.history(); if (r.items[0]) resumeInto(active, r.items.find(c => c.astro) || r.items[0]); return r.items.length; },
+    folders: () => sessions.map(s => ({ name: s.name, folder: s.folder, busy: s.busy, engine: s.engine, model: s.model, active: s === active })),
+    resumeFirst: async () => { const r = await api.history(active.folder, active.engine); if (r.items[0]) resumeInto(active, r.items.find(c => c.astro) || r.items[0]); return r.items.length; },
     thinking: (status = 'Leyendo main.js…') => { const t = thinkingCloud(active); t.querySelector('.status').textContent = status; },
     fakeAgents(withError = false, sessionIndex) {
       const s = sessionIndex === undefined ? active : sessions[sessionIndex];
