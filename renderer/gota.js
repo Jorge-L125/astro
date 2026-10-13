@@ -236,6 +236,11 @@ export function createGota(host, opts = {}) {
     recoil: { dur: 0.9, f: p => ({ rx: -0.28 * bump(p, 0, 1), y: 0.15 * bump(p, 0, 0.5), hl: 0.35 * bump(p, 0, 1), hr: 0.35 * bump(p, 0, 1) }) },
     yawn: { dur: 1.6, f: p => ({ sy: 1 + 0.13 * bump(p, 0.15, 0.75), sxw: 1 - 0.05 * bump(p, 0.15, 0.75), rx: -0.16 * bump(p, 0.15, 0.75), hl: 0.55 * bump(p, 0.1, 0.8), hr: 0.55 * bump(p, 0.1, 0.8) }) },
     lookaround: { dur: 2.6, f: p => ({ ry: Math.sin(p * Math.PI * 2) * 0.65 * bump(p, 0, 1), rx: -0.08 * bump(p, 0.3, 0.7) }) },
+    // gestos de los trajes: pingüino, robot, pollo y momia
+    waddle: { dur: 1.8, f: (p, t) => { const e = bump(p, 0, 1); return { rz: Math.sin(t * 11) * 0.16 * e, x: Math.sin(t * 11) * 0.05 * e, y: Math.abs(Math.sin(t * 11)) * 0.06 * e, hl: (0.2 + 0.2 * Math.sin(t * 22)) * e, hr: (0.2 - 0.2 * Math.sin(t * 22)) * e }; } },
+    beep: { dur: 1.2, f: (p, t) => ({ ry: Math.round(Math.sin(t * 9) * 2) * 0.12 * (1 - p), y: Math.round(bump(p, 0, 1) * 3) * 0.05 }) },
+    flap: { dur: 1.4, f: (p, t) => { const e = bump(p, 0, 1); return { hl: (0.35 + 0.35 * Math.sin(t * 26)) * e, hr: (0.35 + 0.35 * Math.sin(t * 26)) * e, y: Math.abs(Math.sin(t * 13)) * 0.15 * e }; } },
+    shamble: { dur: 2.2, f: (p, t) => { const e = ease(clamp(p / 0.15)) * ease(clamp((1 - p) / 0.15)); return { hl: 0.45 * e, hr: 0.45 * e, rz: Math.sin(t * 4) * 0.12 * e, x: Math.sin(t * 4) * 0.06 * e, rx: 0.1 * e }; } },
     scratch: { dur: 1.8, f: (p, t) => { const up = ease(clamp(p / 0.2)) * ease(clamp((1 - p) / 0.2)); return { hr: 1.25 * up, hrx: (-0.55 + Math.sin(t * 18) * 0.06) * up, rz: 0.12 * up }; } },
   };
   let action = null;
@@ -311,7 +316,10 @@ export function createGota(host, opts = {}) {
     scene.add(g);
     return { g, mat, eyeMat, b, eyes: mEyes, vis: 1, blinkT: -1, nextBlink: T + 1 + Math.random() * 3, jumpT: -1, anim: null, slot: SLOTS[0], color: hex, pending: false, acc: 'none', accObj: null };
   }
-  const miniEyes = mv => { const b = accs.get(mv.acc); return b && b.eyesDark ? 0x141416 : eyeHex(mv.color); };
+  const miniEyes = mv => {
+    const b = accs.get(mv.acc), em = b && (b.eyeMode || (b.eyesDark ? 'dark' : null));
+    return em === 'dark' ? 0x141416 : em === 'light' ? 0xffffff : em === 'glow' ? 0x7ff3ff : eyeHex(mv.color);
+  };
   function setMiniColor(mv, hex) { mv.color = hex; mv.mat.color.set(hex); mv.eyeMat.color.set(miniEyes(mv)); }
   // Copia del diseño en una gota de atrás: comparte formas y materiales, sin objetos de mano ni animación.
   function setMiniAccessory(mv, key) {
@@ -590,8 +598,11 @@ export function createGota(host, opts = {}) {
     mShell.color.copy(bodyColor);
     mFx.color.copy(bodyColor);
     const lum = 0.2126 * bodyColor.r + 0.7152 * bodyColor.g + 0.0722 * bodyColor.b;
-    // con la manta de fantasma los ojos van siempre oscuros sobre la tela blanca
-    mGlow.color.set(lum > 0.3 || (acc && acc.eyesDark) ? 0x141416 : 0xffffff);
+    // con la manta de fantasma los ojos van siempre oscuros sobre la tela blanca; algunos trajes fijan
+    // el suyo: claros sobre la rendija de la momia, cian encendido en la pantalla del robot
+    const em = (acc && acc.eyeMode) || (lum > 0.3 || (acc && acc.eyesDark) ? 'dark' : 'light');
+    mGlow.color.set(em === 'dark' ? 0x141416 : em === 'glow' ? 0x7ff3ff : 0xffffff);
+    mGlow.emissive.set(em === 'glow' ? 0x3fe0ff : 0x000000); mGlow.emissiveIntensity = em === 'glow' ? 0.9 : 0;
   }
 
   // ---------- bucle ----------
