@@ -55,3 +55,55 @@ test('sin OpenCode instalado avisa con un código propio', async () => {
   });
   await assert.rejects(srv.ready(), e => e.code === 'opencode_missing');
 });
+
+/* ---------- OpenCode 2.x ---------- */
+// Un servidor 2.x: la API vive bajo /api y las rutas de la 1.x devuelven la web (HTML).
+const v2Fetch = (seen, version = '2.0.28') => async (url, opts) => {
+  seen.push({ url, opts });
+  const u = new URL(url);
+  if (u.pathname === '/api/info') return { ok: true, status: 200, json: async () => ({ version }), text: async () => JSON.stringify({ version }) };
+  if (u.pathname === '/api/session') return { ok: true, status: 200, json: async () => ({ data: [] }), text: async () => '{"data":[]}' };
+  if (u.pathname === '/api/boom') return { ok: false, status: 400, json: async () => ({}), text: async () => '{"_tag":"InvalidRequestError","message":"Missing key text"}' };
+  return { ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token <'); }, text: async () => '<!doctype html>' };
+};
+
+test('2.x: se reconoce por /api/info y se da por probada', async () => {
+  const seen = [];
+  const srv = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv:4096' }), fetchImpl: v2Fetch(seen) });
+  const info = await srv.ready();
+  assert.deepEqual([info.version, info.api, info.supported], ['2.0.28', 'v2', true]);
+  assert.ok(!seen.some(s => s.url.includes('/global/health')), 'no se prueba la API vieja');
+});
+
+test('1.19 sigue igual: api v1 y comprobación de salud', async () => {
+  const seen = [];
+  const srv = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv:4096' }), fetchImpl: okFetch(seen) });
+  const info = await srv.ready();
+  assert.deepEqual([info.version, info.api, info.supported], ['1.19.0', 'v1', true]);
+});
+
+test('una versión desconocida de 1.x o 2.x se marca como no probada', async () => {
+  const a = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv' }), fetchImpl: v2Fetch([], '3.1.0') });
+  assert.equal((await a.ready()).supported, false);
+  const b = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv' }), fetchImpl: async url => (new URL(url).pathname === '/global/health'
+    ? { ok: true, status: 200, json: async () => ({ healthy: true, version: '1.17.0' }) } : { ok: false, status: 404, json: async () => ({}), text: async () => '' }) });
+  const info = await b.ready();
+  assert.deepEqual([info.api, info.supported], ['v1', false]);
+});
+
+test('2.x: la carpeta va en una cabecera (codificada) y los errores traen su mensaje', async () => {
+  const seen = [];
+  const srv = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv:4096/' }), fetchImpl: v2Fetch(seen) });
+  await srv.request('GET', '/api/session', { dir: 'C:/Users/ñu/日本' });
+  const last = seen[seen.length - 1];
+  assert.equal(last.url, 'http://srv:4096/api/session', 'sin ?directory=');
+  assert.equal(last.opts.headers['x-opencode-directory'], encodeURIComponent('C:/Users/ñu/日本'));
+  await assert.rejects(srv.request('GET', '/api/boom'), e => e.code === 'opencode_http' && /Missing key text/.test(e.message));
+});
+
+test('1.x: la carpeta sigue yendo en la dirección', async () => {
+  const seen = [];
+  const srv = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv:4096' }), fetchImpl: okFetch(seen) });
+  await srv.request('GET', '/session', { dir: '/w/p' });
+  assert.equal(seen[seen.length - 1].url, 'http://srv:4096/session?directory=%2Fw%2Fp');
+});

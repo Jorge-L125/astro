@@ -50,13 +50,15 @@ const TOOL_NAMES = {
   read: 'Read', glob: 'Glob', grep: 'Grep', list: 'Glob', bash: 'Bash', edit: 'Edit', write: 'Write',
   patch: 'Edit', multiedit: 'MultiEdit', webfetch: 'WebFetch', websearch: 'WebSearch', task: 'Agent',
   todowrite: 'TodoWrite', todoread: 'TodoWrite', skill: 'Skill',
+  // OpenCode 2.x
+  shell: 'Bash', subagent: 'Agent',
 };
 /** { name, input } al estilo de Claude Code para una herramienta de OpenCode. */
 function toClaudeTool(tool, input = {}) {
   const i = input || {};
   const name = TOOL_NAMES[tool] || tool;
   const file = i.filePath || i.file_path || i.path;
-  return { name, input: { ...i, file_path: file, pattern: i.pattern || (tool === 'list' ? i.path : undefined), url: i.url, command: i.command, query: i.query, description: i.description, prompt: i.prompt } };
+  return { name, input: { ...i, file_path: file, pattern: i.pattern || (tool === 'list' ? i.path : undefined), url: i.url, command: i.command, query: i.query, description: i.description, prompt: i.prompt, subagent_type: i.subagent_type || i.agent } };
 }
 
 // Permisos de OpenCode por cada herramienta de Claude Code de la lista allowedTools de Astro.
@@ -93,6 +95,41 @@ function permissionRequest(p = {}) {
   const tool = ASKED_TOOL[p.permission] || p.permission || 'Herramienta';
   const input = { command: meta.command || patterns.join(' && '), file_path: meta.filepath || meta.filePath || patterns[0], url: meta.url || patterns[0], pattern: patterns[0] };
   return { id: p.id, tool, input, patterns, always: Array.isArray(p.always) ? p.always : [] };
+}
+
+// OpenCode 2.x: la solicitud de permiso trae `action` (shell, edit, read…), `resources` (el comando o la
+// ruta) y `save` (los patrones que se guardarían con «Siempre»).
+const ASKED_TOOL_V2 = { shell: 'Bash', edit: 'Edit', write: 'Write', patch: 'Edit', webfetch: 'WebFetch', websearch: 'WebSearch', read: 'Read', glob: 'Glob', grep: 'Grep', list: 'Glob', subagent: 'Agent', external_directory: 'Read' };
+function permissionRequestV2(p = {}) {
+  const res = Array.isArray(p.resources) ? p.resources.map(String) : [];
+  const tool = ASKED_TOOL_V2[p.action] || p.action || 'Herramienta';
+  const input = { command: p.action === 'shell' ? res.join(' && ') : undefined, file_path: res[0], url: res[0], pattern: res[0] };
+  return { id: p.id, tool, input, patterns: res, always: Array.isArray(p.save) ? p.save : [] };
+}
+
+// Lo que 2.x llama `action` según las reglas de allowedTools (que usan los nombres de 1.x).
+const PERMISSION_V2 = { shell: 'bash', edit: 'edit', write: 'edit', patch: 'edit', subagent: 'task', external_directory: 'read' };
+const escapeRe = s => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+// `*` vale por cualquier texto; "pnpm test *" vale también para "pnpm test" a secas.
+function globMatch(pattern, text) {
+  if (pattern === '*') return true;
+  const tail = pattern.endsWith(' *');
+  const body = (tail ? pattern.slice(0, -2) : pattern).split('*').map(escapeRe).join('.*');
+  return new RegExp('^' + body + (tail ? '( .*)?' : '') + '$').test(text);
+}
+/**
+ * ¿Está ya permitido lo que 2.x pregunta? Con las mismas reglas que se dan a 1.x (la última que coincide
+ * manda). Astro lo aprueba solo: el servidor de Astro pregunta por todo y aquí se decide.
+ */
+function allowsRequest(allowedTools = [], action, resources = []) {
+  const perm = PERMISSION_V2[action] || action;
+  const rules = permissionRules(allowedTools);
+  if (!Array.isArray(resources) || !resources.length) return false;
+  return resources.every(r => {
+    let result = 'ask';
+    for (const rule of rules) if ((rule.permission === '*' || rule.permission === perm) && globMatch(rule.pattern, String(r))) result = rule.action;
+    return result === 'allow';
+  });
 }
 
 /**
@@ -177,9 +214,40 @@ function conversationItems(messages = []) {
   return out;
 }
 
+/**
+ * OpenCode 2.x: los mensajes llegan del más nuevo al más antiguo, con `text` en los del usuario
+ * y `content` (texto, razonamiento, herramientas) en los del asistente.
+ */
+function conversationItemsV2(messages = []) {
+  const list = (Array.isArray(messages) ? [...messages] : []).sort((a, b) => ((a.time && a.time.created) || 0) - ((b.time && b.time.created) || 0));
+  const out = [];
+  let bot = null;
+  const flush = () => { if (bot && (bot.data || bot.text)) out.push(bot); bot = null; };
+  for (const m of list) {
+    const at = (m.time && (m.time.completed || m.time.created)) || null;
+    if (m.type === 'user') {
+      // Al listar, el texto va en `text`; la respuesta de enviar un mensaje lo trae en `payload.text`.
+      const text = String(m.text || (m.payload && m.payload.text) || '').trim();
+      if (!text) continue;
+      flush();
+      out.push({ role: 'user', text, at: (m.time && m.time.created) || null });
+      bot = { role: 'bot', data: null, text: '', at: null };
+    } else if (m.type === 'assistant' && bot) {
+      const text = (Array.isArray(m.content) ? m.content : []).filter(p => p.type === 'text' && p.text).map(p => p.text).join('\n').trim();
+      if (!text) continue;
+      const parsed = parseReply(text);
+      if (parsed) { bot.data = parsed.data; bot.text = parsed.prose; } else { bot.data = null; bot.text = text; }
+      bot.at = at;
+    }
+  }
+  flush();
+  return out;
+}
+
 /** Una sesión de OpenCode como elemento de la lista de /resume. */
-function listItem(session, messages = []) {
-  const items = conversationItems(messages);
+function listItem(session, messages = []) { return listItemFrom(session, conversationItems(messages)); }
+function listItemV2(session, messages = []) { return listItemFrom(session, conversationItemsV2(messages)); }
+function listItemFrom(session, items) {
   const users = items.filter(x => x.role === 'user');
   const lastBot = items.filter(x => x.role === 'bot').pop();
   const title = String(session.title || '').replace(/\s+/g, ' ').trim();
@@ -196,4 +264,30 @@ function listItem(session, messages = []) {
   };
 }
 
-module.exports = { OPENCODE_RULES, parseReply, toClaudeTool, permissionRules, permissionRequest, toServerPath, toHostPath, commandList, contextUsage, splitModel, conversationItems, listItem };
+/** Modelos de OpenCode 2.x (`GET /api/model`) en el formato del selector de Astro. */
+function modelsV2(list = []) {
+  return (Array.isArray(list) ? list : [])
+    .filter(m => m && m.enabled !== false && (!m.status || m.status === 'active'))
+    .map(m => {
+      const costs = Array.isArray(m.cost) ? m.cost : [];
+      const zero = costs.length > 0 && costs.every(c => !c.input && !c.output);
+      return { id: `${m.providerID}/${m.modelID || m.id}`, name: m.name || m.id, provider: m.providerID, context: (m.limit && m.limit.context) || null, free: m.providerID === 'opencode' && zero };
+    });
+}
+/** "proveedor/modelo" → { providerID, id } (así lo pide 2.x); null si no tiene esa forma. */
+function splitModelV2(id) {
+  const m = splitModel(id);
+  return m ? { providerID: m.providerID, id: m.modelID } : null;
+}
+/** Comandos / de 2.x (`GET /api/command`) en el formato del menú de Astro. */
+function commandListV2(list = []) {
+  return (Array.isArray(list) ? list : [])
+    .filter(c => c && c.name)
+    .map(c => ({ name: c.name, desc: c.description || 'Comando de OpenCode', kind: 'task' }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+module.exports = {
+  OPENCODE_RULES, parseReply, toClaudeTool, permissionRules, permissionRequest, toServerPath, toHostPath, commandList, contextUsage, splitModel, conversationItems, listItem,
+  permissionRequestV2, allowsRequest, conversationItemsV2, listItemV2, modelsV2, splitModelV2, commandListV2,
+};
