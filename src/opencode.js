@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const map = require('./opencode-map');
 const { describeTool } = require('./claude');
 const { createOpencodeSessionV2 } = require('./opencode-v2');
+const { resolveOpencode } = require('./opencode-bin');
 
 const EXPECTED = /^1\.19\./; // versión 1.x con la que se construyó la integración
 const EXPECTED_V2 = /^2\./; // y la 2.x (otra API, bajo /api)
@@ -37,7 +38,7 @@ function stop(child) {
   } catch { /* ya cerrado */ }
 }
 
-function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) => fetch(...a) }) {
+function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) => fetch(...a), resolveBin = resolveOpencode }) {
   let starting = null; // Promise<{ base, headers, version }>
   let proc = null;
   const streams = new Map(); // carpeta del servidor -> { listeners:Set, abort }
@@ -69,23 +70,27 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
   async function startLocal(cfg) {
     const port = await freePort();
     const password = crypto.randomBytes(18).toString('hex');
-    const bin = cfg.bin || 'opencode';
+    // Dónde está OpenCode, sin depender del PATH con el que se abrió Astro (ver src/opencode-bin.js).
+    const bin = resolveBin(cfg.bin);
     const args = ['serve', '--hostname', '127.0.0.1', '--port', String(port)];
     // El servidor propio de Astro pregunta por todo: Astro aprueba solo lo que ya tienes permitido (en 2.x,
     // que no admite reglas por sesión) y en 1.x mandan las reglas de cada sesión.
     const opts = { env: { ...process.env, OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { '*': 'ask' } }) }, windowsHide: true };
-    // En Windows `opencode` suele ser un .cmd (npm): va por la consola, como una sola línea.
-    const child = process.platform === 'win32' ? spawnImpl([bin, ...args].join(' '), [], { ...opts, shell: true }) : spawnImpl(bin, args, opts);
+    // Un ejecutable se lanza directo; un .cmd de npm (o el nombre a secas en Windows) va por la consola, como una sola línea.
+    const first = bin.shell && /s/.test(bin.command) ? `"${bin.command}"` : bin.command;
+    const child = bin.shell ? spawnImpl([first, ...args].join(' '), [], { ...opts, shell: true }) : spawnImpl(bin.command, args, opts);
     proc = child;
+    // Si no se encontró en ningún sitio, el aviso dice dónde se buscó y qué hacer.
+    const hint = bin.found ? '' : ' Astro busca OpenCode en el PATH y en sus carpetas habituales (como ~/.opencode/bin). Si lo instalaste hace poco, reinicia Astro; si no, indica su ruta en la configuración de OpenCode.';
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(fail('opencode_unreachable', 'OpenCode no arrancó a tiempo.')), START_TIMEOUT_MS);
       let out = '';
       const onData = d => { out += d; if (/listening on/i.test(out)) { clearTimeout(timer); resolve(); } };
       child.stdout.on('data', onData);
       child.stderr.on('data', d => { out += d; });
-      child.on('error', e => { clearTimeout(timer); reject(fail('opencode_missing', `No encuentro el comando opencode (${e.message}).`)); });
+      child.on('error', e => { clearTimeout(timer); reject(fail('opencode_missing', `No encuentro el comando opencode (${e.message}).${hint}`)); });
       // Si se cierra después de arrancar, la próxima petición lo vuelve a lanzar.
-      child.on('exit', code => { clearTimeout(timer); if (proc === child) { proc = null; starting = null; } reject(fail('opencode_missing', `OpenCode se cerró al arrancar (código ${code}). ${out.slice(-300)}`)); });
+      child.on('exit', code => { clearTimeout(timer); if (proc === child) { proc = null; starting = null; } reject(fail('opencode_missing', `OpenCode se cerró al arrancar (código ${code}). ${out.slice(-300)}${hint}`)); });
     });
     return { base: `http://127.0.0.1:${port}`, headers: headersFor(password) };
   }

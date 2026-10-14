@@ -21,7 +21,7 @@ const okFetch = seen => async (url, opts) => { seen.push({ url, opts }); return 
 
 test('en este equipo: Astro arranca OpenCode con una contraseña de un solo uso', async () => {
   const calls = [], seen = [];
-  const srv = createOpencodeServer({ settings: () => ({ mode: 'local', pathMap: [{ host: 'C:/x', server: '/w' }] }), spawnImpl: fakeSpawn(calls), fetchImpl: okFetch(seen) });
+  const srv = createOpencodeServer({ settings: () => ({ mode: 'local', pathMap: [{ host: 'C:/x', server: '/w' }] }), resolveBin: () => ({ command: 'opencode', shell: process.platform === 'win32', found: false }), spawnImpl: fakeSpawn(calls), fetchImpl: okFetch(seen) });
   const info = await srv.ready();
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].args.slice(0, 3), ['serve', '--hostname', '127.0.0.1']);
@@ -39,7 +39,7 @@ test('en este equipo: Astro arranca OpenCode con una contraseña de un solo uso'
 
 test('si OpenCode se cierra, la siguiente petición lo vuelve a arrancar', async () => {
   const calls = [];
-  const srv = createOpencodeServer({ settings: () => ({ mode: 'local' }), spawnImpl: fakeSpawn(calls), fetchImpl: okFetch([]) });
+  const srv = createOpencodeServer({ settings: () => ({ mode: 'local' }), resolveBin: () => ({ command: 'opencode', shell: process.platform === 'win32', found: false }), spawnImpl: fakeSpawn(calls), fetchImpl: okFetch([]) });
   await srv.ready();
   calls[0].child.emit('exit', 1);
   await srv.ready();
@@ -49,7 +49,7 @@ test('si OpenCode se cierra, la siguiente petición lo vuelve a arrancar', async
 
 test('sin OpenCode instalado avisa con un código propio', async () => {
   const srv = createOpencodeServer({
-    settings: () => ({ mode: 'local' }),
+    settings: () => ({ mode: 'local' }), resolveBin: () => ({ command: 'opencode', shell: process.platform === 'win32', found: false }), 
     spawnImpl: () => { const c = new EventEmitter(); c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => {}; setImmediate(() => c.emit('error', new Error('spawn opencode ENOENT'))); return c; },
     fetchImpl: okFetch([]),
   });
@@ -106,4 +106,46 @@ test('1.x: la carpeta sigue yendo en la dirección', async () => {
   const srv = createOpencodeServer({ settings: () => ({ mode: 'remote', url: 'http://srv:4096' }), fetchImpl: okFetch(seen) });
   await srv.request('GET', '/session', { dir: '/w/p' });
   assert.equal(seen[seen.length - 1].url, 'http://srv:4096/session?directory=%2Fw%2Fp');
+});
+
+/* ---------- dónde está OpenCode ---------- */
+test('usa la ruta completa que encuentra, sin depender del PATH de Astro', async () => {
+  const calls = [];
+  const srv = createOpencodeServer({
+    settings: () => ({ mode: 'local' }), spawnImpl: fakeSpawn(calls), fetchImpl: okFetch([]),
+    resolveBin: () => ({ command: '/home/ana/.opencode/bin/opencode', shell: false, found: true }),
+  });
+  await srv.ready();
+  assert.equal(calls[0].bin, '/home/ana/.opencode/bin/opencode', 'se lanza el ejecutable, sin shell');
+  assert.deepEqual(calls[0].args.slice(0, 3), ['serve', '--hostname', '127.0.0.1']);
+  srv.close();
+});
+
+test('un opencode.cmd con espacios en la ruta se lanza por la consola entrecomillado', async () => {
+  const seen = [];
+  const spawnImpl = (cmd, list, opts) => { seen.push({ cmd, list, shell: opts.shell }); return fakeSpawn([])(cmd, list, opts); };
+  const srv = createOpencodeServer({
+    settings: () => ({ mode: 'local' }), spawnImpl, fetchImpl: okFetch([]),
+    resolveBin: () => ({ command: 'C:/Users/ana maria/npm/opencode.cmd', shell: true, found: true }),
+  });
+  // el servidor falso solo entiende comandos sin espacios en la ruta: aquí basta con ver cómo se lanza
+  srv.ready().catch(() => {});
+  await new Promise(r => setImmediate(r));
+  assert.equal(seen[0].shell, true);
+  assert.ok(seen[0].cmd.startsWith('"C:/Users/ana maria/npm/opencode.cmd" serve'), seen[0].cmd);
+  srv.close();
+});
+
+test('si OpenCode no aparece y no arranca, el aviso dice dónde se buscó y qué hacer', async () => {
+  const srv = createOpencodeServer({
+    settings: () => ({ mode: 'local' }),
+    spawnImpl: () => {
+      const c = new EventEmitter(); c.stdout = new EventEmitter(); c.stderr = new EventEmitter(); c.kill = () => {};
+      setImmediate(() => { c.stderr.emit('data', '"opencode" no se reconoce como un comando interno o externo'); c.emit('exit', 1); });
+      return c;
+    },
+    fetchImpl: okFetch([]),
+    resolveBin: () => ({ command: 'opencode', shell: true, found: false }),
+  });
+  await assert.rejects(srv.ready(), e => e.code === 'opencode_missing' && /reinicia Astro/.test(e.message) && /\.opencode/.test(e.message));
 });
