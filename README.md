@@ -1,11 +1,31 @@
 # Astro
 
-Asistente de escritorio que flota sobre la pantalla (una gota 3D con personalidad) y habla con **Claude Code** usando tu instalación local de `claude`. Funciona en Windows y macOS.
+Asistente de escritorio que flota sobre la pantalla (una gota 3D con personalidad) y habla con **Claude Code** usando tu instalación local de `claude` (o con **OpenCode**, si prefieres). Funciona en Windows y macOS.
+
+<!--
+  CAPTURAS (pendientes): guárdalas en `assets/capturas/` (no en `docs/`, que no va al repositorio) y enlázalas aquí con
+  ![texto](assets/capturas/nombre.png). Ideas: la gota con una nube de respuesta, los ayudantes orbitando, el panel de pasos,
+  el menú de Ajustes con los diseños, y un par de diseños en acción (gato, pollo con huevos, robot con tuercas).
+-->
+
+## Qué hace
+
+- **Habla con Claude Code o con OpenCode.** Cada sesión elige su motor y su modelo, y trabaja en la carpeta de tu proyecto (con su `CLAUDE.md`, sus skills y sus comandos).
+- **Se ve lo que hace.** Cuando Claude reparte el trabajo, cada ayudante sale como una mini-gota que orbita; los pasos (qué lee, qué busca, qué ejecuta) se siguen en vivo en un panel, y los planes se leen enteros con *Ver el plan*.
+- **Varias sesiones a la vez**, con su color, su historial (`/historial`) y la posibilidad de retomar conversaciones anteriores (`/resume`), también las que empezaste en la terminal.
+- **Escribes aunque esté trabajando**, como en la terminal, y te pide permiso en el momento para lo que no tenga permitido.
+- **Ve tus capturas de pantalla** y te ofrece preguntar sobre ellas; avisa cuando termina cualquier sesión de Claude Code; vigila el contexto con un anillo.
+- **Muchos diseños con vida propia** (gato, pollo, robot, ninja, dinosaurio…), cada uno con sus gestos y sus propios ayudantes: ovillos de lana, huevos que eclosionan, tuercas y tornillos…
+- **Se llama desde la terminal** con `astro` y **se actualiza solo** (Windows).
 
 ## Requisitos
 
-- Claude Code instalado y con la sesión iniciada (prueba `claude` en una terminal).
-- Node.js 22 o superior y pnpm.
+- Claude Code instalado y con la sesión iniciada (prueba `claude` en una terminal), u [OpenCode](https://opencode.ai) si quieres usar ese motor (ver [OpenCode](#opencode)).
+- Node.js 22 o superior y pnpm, solo si vas a arrancarlo desde el código.
+
+## Instalar (Windows)
+
+Descarga `Astro-Setup-<versión>.exe` de la [última release](https://github.com/Jorge-L125/astro/releases/latest) y ejecútalo: se instala para tu usuario, sin permisos de administrador. La primera vez Windows SmartScreen avisa de que el instalador no está firmado (*Más información → Ejecutar de todas formas*). A partir de ahí Astro se actualiza solo (ver [Compilar un ejecutable](#compilar-un-ejecutable)) y añade el comando `astro` a tu terminal (ver [Desde la terminal](#desde-la-terminal)). En macOS se arranca desde el código (ver [macOS](#macos)).
 
 ## Arrancar
 
@@ -19,10 +39,26 @@ Astro abre una sola vez: si ya está abierto y lo vuelves a lanzar (otra vez el 
 - **Llamar a Astro:** `Ctrl+Shift+Espacio` (`⌘⇧Espacio` en Mac), clic sobre la gota o el icono de la bandeja. Con varias pantallas, Astro aparece en la que tiene el cursor.
 - **Escribir:** Enter envía, Shift+Enter hace salto de línea, Esc cierra.
 - **Detener:** el botón ■ de la nube de «pensando» o de la lista de ayudantes corta todo lo que esté haciendo la sesión.
-- **Gestos:** arrastrar la gota la hace girar; mantener pulsado = mimos; varios clics seguidos la marean. Si pasa 1 minuto sin actividad, se duerme.
+- **Gestos:** arrastrar la gota la hace girar; mantener pulsado = mimos; varios clics seguidos la marean (al robot, además, le salen equis de error). Si pasa 1 minuto sin actividad, se duerme.
 - **Minimizar:** botón de gota en la barra (al pasar el ratón) o menú de la bandeja. Clic en la gota para que vuelva.
 
 Cada sesión reutiliza un mismo proceso de Claude Code en lugar de lanzar el CLI en cada pregunta. Como cada proceso ocupa unos 400 MB, Astro no deja ninguno esperando: lo arranca al abrir la pregunta (mientras escribes) y lo cierra tras unos minutos sin uso; la conversación se reanuda sola.
+
+## Desde la terminal
+
+Con Astro instalado (Windows), el comando **`astro`** funciona en cualquier terminal nueva (PowerShell, cmd, Git Bash y la terminal integrada de VS Code):
+
+```bash
+cd mi-proyecto
+astro
+```
+
+- **No bloquea la terminal:** Astro se abre por su cuenta y puedes seguir trabajando en ella.
+- **Se coloca en tu carpeta:** la sesión pasa a trabajar en la carpeta desde la que lo llamaste (con su `CLAUDE.md`, sus skills y sus conversaciones guardadas). Si una sesión ya trabajaba ahí, Astro cambia a ella; si no, usa la principal, o abre una sesión nueva si está ocupada. Detalles en [Carpeta de trabajo](#carpeta-de-trabajo).
+- **Si ya está abierto**, solo se muestra con la pregunta lista y se mueve a esa carpeta: nunca se abre dos veces.
+- Las conversaciones que hagas en Astro quedan guardadas junto a las que abres con `claude` en esa carpeta, así que puedes seguir una desde la otra con `/resume`.
+
+El comando lo añade el instalador (pone la carpeta `bin` de Astro en el PATH de tu usuario y el desinstalador lo quita); abre una terminal nueva después de instalar. Con `pnpm start` no existe: es del instalador, y en macOS todavía no hay instalador.
 
 ## Uso del contexto
 
@@ -154,7 +190,7 @@ Astro detecta las capturas por dos vías: la carpeta donde el sistema las guarda
 
 ## Ajustes
 
-Botón ⚙ de la barra que aparece al pasar el ratón sobre Astro:
+Botón de ajustes (el de los controles deslizantes) de la barra que aparece al pasar el ratón sobre Astro:
 
 - **Color de esta sesión**, **posición** (izquierda o derecha) y **tema** (automático, claro u oscuro).
 - **Accesorio (diseño):** 22 a elegir — Navidad, fantasma, vampiro, bruja, fiesta, vaquero, astronauta, casco de obra, audífonos, ninja (se tapa la cara con las manos si lo miras), mago, pirata, detective, vikingo, chef, gato (que mueve las orejas y la cola de vez en cuando, y ronronea si lo acaricias; sus ayudantes son ovillos de lana), dinosaurio (con púas, dientes y una cola que se menea), pollo (sus ayudantes son huevos de colores que eclosionan al terminar y sueltan un pollito; empolla mientras trabaja y picotea en reposo), momia (envuelta en papel de baño, con el rollo en la mano), pingüino (se balancea de un pie a otro) y robot retro (ojos cian, antena con luz y chispas mientras trabaja; sus ayudantes son tuercas y tornillos, y si le das varios clics seguidos le salen equis de error). Cada uno tiene sus animaciones: al ponérselo, un gesto propio de vez en cuando en reposo (confeti, humo ninja, «¡Tierra a la vista!»…), otra mientras trabaja (el martillo golpea, la olla del chef hierve, los ayudantes del vikingo llevan escudo) y una frase al terminar los ayudantes.
@@ -251,6 +287,10 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/claude.js` — mantiene un proceso `claude -p` vivo por sesión (entrada y salida en streaming), con reanudación automática y procesos precalentados.
 - `src/claude-bin.js` — localiza el ejecutable de Claude Code (`.exe`, `.cmd` de npm, Homebrew, `~/.local/bin`…).
 - `src/shell-path.js` — PATH del shell de login en macOS.
+- `src/history.js` — conversaciones guardadas de Claude Code (para `/resume` y `/historial`).
+- `src/plans.js` — lee el plan que Claude escribe en `~/.claude/plans` (solo esa carpeta) para «Ver el plan».
+- `src/displays.js` — qué pantalla usar cuando hay varias.
+- `src/skill-descriptions.js` — descripciones de las skills para el menú de comandos.
 - `src/opencode.js` — OpenCode como motor: arranca o conecta el servidor y lleva cada conversación con la misma forma que `src/claude.js`.
 - `src/opencode-v2.js` — la conversación con OpenCode 2.x (otra API y otros eventos); `src/opencode.js` elige entre 1.x y 2.x al conectar.
 - `src/opencode-api.js` — modelos, comandos y conversaciones guardadas, según la versión del servidor.
@@ -264,6 +304,10 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/notify-server.js` + `src/runtime-info.js` + `hooks/astro-notify.js` — avisos de otras sesiones.
 - `src/icon.js` — icono de la bandeja, generado sin archivos.
 - `renderer/gota.js` — el personaje 3D.
+- `renderer/accessories.js` — los diseños (sombreros, animales, disfraces) con sus gestos y sus ayudantes; `renderer/outfits.js` recuerda cuál lleva cada proyecto y entiende «ponte el sombrero de pirata».
+- `renderer/fx.js` — partículas cortas (confeti, chispas, humo, equis de error).
+- `renderer/tools.js` — cuenta en palabras qué herramienta quiere usar Claude, para los avisos de permiso.
+- `renderer/usage.js` — uso del contexto y respuestas a «¿cuántos tokens quedan?».
 - `renderer/app.js` — nubes, sesiones, hojas, ayudantes, capturas y ajustes.
 - `renderer/markdown.js` — markdown simple y reparto en hojas.
 - `renderer/keys.js` — atajos escritos como en cada sistema (Ctrl/⌘).
