@@ -20,7 +20,7 @@ const { readPlan } = require('./src/plans');
 const { createUpdater } = require('./src/updater');
 const { createOpencodeServer, createOpencodeSession } = require('./src/opencode');
 const { createOpencodeSettings } = require('./src/opencode-settings');
-const ocMap = require('./src/opencode-map');
+const ocApi = require('./src/opencode-api');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
 // avisa a la primera, que se muestra con la pregunta abierta ('second-instance'), y termina antes
@@ -110,7 +110,8 @@ function ocReady() {
   if (!ocSynced) {
     ocSynced = ocServer.ready().then(async info => {
       const o = ocSettings.openai();
-      if (o.baseURL && o.models.length) {
+      // En 2.x los proveedores se conectan desde OpenCode (`opencode auth login`): Astro no los registra.
+      if (info.api !== 'v2' && o.baseURL && o.models.length) {
         const models = Object.fromEntries(o.models.map(m => [m, { name: m }]));
         await ocServer.request('PATCH', '/global/config', { body: { provider: { [OC_PROVIDER]: { npm: '@ai-sdk/openai-compatible', name: o.name || 'Compatible con OpenAI', options: { baseURL: o.baseURL }, models } } } });
         if (o.key) await ocServer.request('PUT', `/auth/${OC_PROVIDER}`, { body: { type: 'api', key: o.key } });
@@ -125,16 +126,7 @@ function ocReady() {
 let ocProviders = null;
 async function ocModels() {
   if (!ocProviders) {
-    ocProviders = ocReady().then(() => ocServer.request('GET', '/provider')).then(j => {
-      const out = [];
-      for (const p of j.all || []) {
-        if (!(j.connected || []).includes(p.id)) continue;
-        for (const [id, m] of Object.entries(p.models || {})) {
-          out.push({ id: `${p.id}/${id}`, name: m.name || id, provider: p.name || p.id, context: (m.limit && m.limit.context) || null, free: p.id === 'opencode' && !!(m.cost && !m.cost.input && !m.cost.output) });
-        }
-      }
-      return out;
-    });
+    ocProviders = ocReady().then(() => ocApi.models(ocServer));
     ocProviders.catch(() => { ocProviders = null; });
   }
   return ocProviders;
@@ -502,8 +494,7 @@ ipcMain.on('claude:resume', (_e, { conv, sessionId, cwd, engine, model }) => {
 ipcMain.handle('history:conversation', async (_e, { cwd: dir, id, engine }) => {
   if (engine === 'opencode') {
     try {
-      const msgs = await ocServer.request('GET', `/session/${encodeURIComponent(id)}/message`, { dir: ocServer.dirFor(folderOf(dir)) });
-      return { ok: true, items: ocMap.conversationItems(msgs) };
+      return { ok: true, items: await ocApi.conversation(ocServer, folderOf(dir), id) };
     } catch (e) { return { ok: false, message: e.message, items: [] }; }
   }
   try {
@@ -517,11 +508,7 @@ ipcMain.handle('history:list', async (_e, dir, engine) => {
   if (engine === 'opencode') {
     try {
       await ocReady();
-      const sdir = ocServer.dirFor(cwd);
-      const list = await ocServer.request('GET', '/session', { dir: sdir, query: { roots: 'true', limit: '30' } });
-      const sessions = (Array.isArray(list) ? list : []).filter(x => x.directory === sdir).sort((a, b) => b.time.updated - a.time.updated).slice(0, 30);
-      const items = await Promise.all(sessions.map(async x => ocMap.listItem(x, await ocServer.request('GET', `/session/${x.id}/message`, { dir: sdir, query: { limit: '20' } }).catch(() => []))));
-      return { ok: true, folder: cwd, items: items.filter(x => x.questions) };
+      return { ok: true, folder: cwd, items: await ocApi.sessions(ocServer, cwd) };
     } catch (e) { return { ok: false, message: e.message, items: [] }; }
   }
   try {
@@ -542,7 +529,7 @@ ipcMain.handle('opencode:save', (_e, input) => {
 ipcMain.handle('opencode:status', async () => {
   try {
     const info = await ocReady();
-    return { ok: true, version: info.version, supported: info.supported, mode: ocSettings.get().mode };
+    return { ok: true, version: info.version, api: info.api, supported: info.supported, mode: ocSettings.get().mode };
   } catch (e) { return { ok: false, code: e.code || 'failed', message: e.message }; }
 });
 ipcMain.handle('opencode:models', async () => {
@@ -551,7 +538,7 @@ ipcMain.handle('opencode:models', async () => {
 ipcMain.handle('opencode:commands', async (_e, dir) => {
   try {
     await ocReady();
-    return { ok: true, items: ocMap.commandList(await ocServer.request('GET', '/command', { dir: ocServer.dirFor(folderOf(dir)) })) };
+    return { ok: true, items: await ocApi.commands(ocServer, folderOf(dir)) };
   } catch (e) { return { ok: false, message: e.message, items: [] }; }
 });
 ipcMain.handle('opencode:reply', async (_e, { conv, id, reply }) => {
@@ -562,7 +549,8 @@ ipcMain.handle('opencode:reply', async (_e, { conv, id, reply }) => {
 // Copilot: el servidor da una página de GitHub y un código; al autorizar, sus modelos quedan conectados.
 ipcMain.handle('opencode:copilot', async () => {
   try {
-    await ocReady();
+    const info = await ocReady();
+    if (info.api === 'v2') return { ok: false, message: 'Con OpenCode 2.x conecta GitHub Copilot desde la terminal (opencode auth login) y sus modelos aparecerán aquí.' };
     const a = await ocServer.request('POST', '/provider/github-copilot/oauth/authorize', { body: { method: 0, inputs: { deploymentType: 'github.com' } } });
     if (a && a.url) shell.openExternal(a.url);
     ocServer.request('POST', '/provider/github-copilot/oauth/callback', { body: { method: 0 } })

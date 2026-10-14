@@ -97,7 +97,7 @@ Como en la terminal de Claude Code, puedes escribirle a Astro aunque esté traba
 
 ## OpenCode
 
-Además de Claude Code, cada sesión puede trabajar con [OpenCode](https://opencode.ai) (probado con la versión **1.19**). El motor se elige junto a la carpeta, en la nube de pregunta (`✳ Claude Code ▾`): ahí aparecen los modelos de OpenCode conectados. Cambiar de motor empieza otra conversación; cambiar de modelo dentro de OpenCode sigue la misma. En *Ajustes › Motor de las sesiones nuevas* eliges con cuál empiezan las sesiones.
+Además de Claude Code, cada sesión puede trabajar con [OpenCode](https://opencode.ai) (probado con las versiones **1.19** y **2.0**: Astro detecta cuál tienes y usa su API). El motor se elige junto a la carpeta, en la nube de pregunta (`✳ Claude Code ▾`): ahí aparecen los modelos de OpenCode conectados. Cambiar de motor empieza otra conversación; cambiar de modelo dentro de OpenCode sigue la misma. En *Ajustes › Motor de las sesiones nuevas* eliges con cuál empiezan las sesiones.
 
 Funciona igual que con Claude: subagentes, pasos, `/resume`, `/historial`, comandos `/` del servidor y escribir mientras trabaja. Los permisos se piden **en el momento**: *Permitir* (esta vez), *Siempre* (en esta conversación) o *No*. Lo que tengas en *Puede usar sin preguntar* vale también para OpenCode.
 
@@ -114,13 +114,15 @@ docker run -d --name astro-opencode -p 127.0.0.1:4096:4096 \
 
 y en Ajustes: `http://127.0.0.1:4096`, esa contraseña y `/ruta/a/tus/proyectos => /work`.
 
+**Versión 2.x.** Con OpenCode 2.x los proveedores y Copilot se conectan desde OpenCode (`opencode auth login`) y sus modelos aparecen en Astro; en *Ajustes* se esconden el proveedor compatible con OpenAI y Copilot, que son de la 1.x. Los permisos funcionan igual: Astro aprueba solo lo que tienes en *Puede usar sin preguntar* y pregunta por lo demás (el servidor que arranca Astro está configurado para preguntar por todo). Con un servidor 2.x que arrancas tú, OpenCode solo pregunta si su configuración lo pide (`"permission"`); Astro responde a lo que pregunte. Los comandos `/` del servidor tardan un instante en aparecer la primera vez que abres una carpeta.
+
 **Modelos.** Los gratuitos de OpenCode vienen conectados; además puedes añadir un proveedor compatible con OpenAI (URL base, modelos y clave) o conectar **GitHub Copilot** (se abre GitHub y escribes el código que muestra Astro). La contraseña y la clave se guardan cifradas con el almacén del sistema y nunca se muestran.
 
 Bueno saber:
 
 - OpenCode no puede usar tu suscripción de Claude (Pro o Max); para eso sigue usando Claude Code.
 - Los modelos gratuitos pueden tardar y guardar lo que les envías: no los uses con código privado.
-- OpenCode 1.19 rompe el historial de una sesión si se le pide un formato JSON obligatorio, así que Astro pide su formato en las instrucciones; si un modelo no lo sigue, la respuesta se muestra como texto.
+- El formato de respuesta de Astro se pide en las instrucciones (OpenCode 1.19 rompe el historial de una sesión si se le exige un JSON obligatorio; en la 2.x van como instrucciones de la sesión). Si un modelo no lo sigue, la respuesta se muestra como texto.
 
 ## Sesiones
 
@@ -250,6 +252,8 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/claude-bin.js` — localiza el ejecutable de Claude Code (`.exe`, `.cmd` de npm, Homebrew, `~/.local/bin`…).
 - `src/shell-path.js` — PATH del shell de login en macOS.
 - `src/opencode.js` — OpenCode como motor: arranca o conecta el servidor y lleva cada conversación con la misma forma que `src/claude.js`.
+- `src/opencode-v2.js` — la conversación con OpenCode 2.x (otra API y otros eventos); `src/opencode.js` elige entre 1.x y 2.x al conectar.
+- `src/opencode-api.js` — modelos, comandos y conversaciones guardadas, según la versión del servidor.
 - `src/opencode-map.js` — traducciones entre OpenCode y Astro (respuesta, herramientas, permisos, carpetas, historial).
 - `src/opencode-settings.js` + `renderer/opencode-panel.js` — ajustes de OpenCode; la contraseña y la clave van cifradas.
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.

@@ -73,3 +73,78 @@ test('comandos, uso de contexto y modelo', () => {
   assert.equal(m.splitModel('solo'), null);
   assert.match(m.OPENCODE_RULES('/work/p'), /\/work\/p/);
 });
+
+/* ---------- OpenCode 2.x ---------- */
+test('2.x: sus herramientas se traducen a las de Claude Code', () => {
+  assert.equal(m.toClaudeTool('shell', { command: 'ls' }).name, 'Bash');
+  assert.equal(m.toClaudeTool('shell', { command: 'ls' }).input.command, 'ls');
+  assert.equal(m.toClaudeTool('subagent', { agent: 'explore', description: 'Contar', prompt: 'Cuenta' }).name, 'Agent');
+  assert.equal(m.toClaudeTool('subagent', { agent: 'explore' }).input.subagent_type, 'explore');
+});
+
+test('2.x: una solicitud de permiso se cuenta como en Claude Code', () => {
+  const sh = m.permissionRequestV2({ id: 'per_1', action: 'shell', resources: ['echo hola'], save: ['echo *'] });
+  assert.deepEqual([sh.id, sh.tool, sh.input.command, sh.always], ['per_1', 'Bash', 'echo hola', ['echo *']]);
+  assert.equal(m.permissionRequestV2({ id: 'p', action: 'edit', resources: ['/p/x.js'] }).input.file_path, '/p/x.js');
+  assert.equal(m.permissionRequestV2({ id: 'p', action: 'read', resources: ['/p/y.js'] }).tool, 'Read');
+  assert.equal(m.permissionRequestV2({ id: 'p', action: 'webfetch', resources: ['https://a.dev/x'] }).input.url, 'https://a.dev/x');
+  assert.equal(m.permissionRequestV2({ id: 'p', action: 'rara', resources: [] }).tool, 'rara');
+});
+
+test('2.x: lo que ya tienes permitido se aprueba solo', () => {
+  const allow = ['Read', 'Glob', 'Bash(pnpm test:*)', 'Edit'];
+  assert.equal(m.allowsRequest(allow, 'read', ['/p/a.js']), true);
+  assert.equal(m.allowsRequest(allow, 'edit', ['/p/a.js']), true);
+  assert.equal(m.allowsRequest(allow, 'shell', ['pnpm test']), true);
+  assert.equal(m.allowsRequest(allow, 'shell', ['pnpm test --watch']), true);
+  assert.equal(m.allowsRequest(allow, 'shell', ['rm -rf x']), false, 'otro comando pregunta');
+  assert.equal(m.allowsRequest(allow, 'shell', ['pnpm testx']), false, 'el comando debe coincidir entero');
+  assert.equal(m.allowsRequest(['Bash'], 'shell', ['cualquier cosa']), true);
+  assert.equal(m.allowsRequest(allow, 'webfetch', ['https://a.dev']), false);
+  assert.equal(m.allowsRequest(allow, 'subagent', ['x']), true, 'los subagentes van siempre');
+  assert.equal(m.allowsRequest([], 'read', ['/p/a.js']), false);
+  assert.equal(m.allowsRequest(allow, 'shell', []), false, 'sin recursos no se adivina');
+});
+
+test('2.x: la conversación (más nueva primero) se lee en orden', () => {
+  const msgs = [
+    { id: 'm5', type: 'idle', time: { created: 5 } },
+    { id: 'm4', type: 'assistant', time: { created: 4, completed: 40 }, content: [{ type: 'reasoning', text: 'pienso' }, { type: 'text', text: '{"mood":"happy","title":"T","lines":["Hecho"],"detail":null}' }] },
+    { id: 'm3', type: 'assistant', time: { created: 3, completed: 30 }, content: [{ type: 'tool', name: 'shell', state: { status: 'completed' } }] },
+    { id: 'm2', type: 'user', time: { created: 2 }, text: 'cuenta los archivos' },
+    { id: 'm1', type: 'assistant', time: { created: 1, completed: 10 }, content: [{ type: 'text', text: 'Hola, soy yo' }] },
+  ];
+  const items = m.conversationItemsV2(msgs);
+  assert.deepEqual(items.map(x => x.role), ['user', 'bot']);
+  assert.equal(items[0].text, 'cuenta los archivos');
+  assert.equal(items[1].data.lines[0], 'Hecho');
+  assert.equal(items[1].at, 40);
+  assert.deepEqual(m.conversationItemsV2(null), []);
+});
+
+test('2.x: una sesión es un elemento de /resume', () => {
+  const msgs = [
+    { id: 'm3', type: 'assistant', time: { created: 3, completed: 30 }, content: [{ type: 'text', text: 'Solo texto' }] },
+    { id: 'm2', type: 'user', time: { created: 2 }, text: 'segunda pregunta' },
+    { id: 'm1', type: 'user', time: { created: 1 }, text: 'primera pregunta' },
+  ];
+  const it = m.listItemV2({ id: 'ses_1', title: 'Astro', time: { created: 1, updated: 99 } }, msgs);
+  assert.deepEqual([it.id, it.mtime, it.questions, it.engine, it.astro], ['ses_1', 99, 2, 'opencode', false]);
+  assert.equal(it.title, 'primera pregunta', 'un título genérico se cambia por la primera pregunta');
+  assert.equal(it.last, 'segunda pregunta');
+  assert.equal(it.lastText, 'Solo texto');
+});
+
+test('2.x: modelos y comandos en el formato de Astro', () => {
+  const list = m.modelsV2([
+    { id: 'cat', modelID: 'cat', providerID: 'opencode', name: 'Cat', enabled: true, status: 'active', limit: { context: 262144 }, cost: [{ input: 0, output: 0 }] },
+    { id: 'gpt', modelID: 'gpt', providerID: 'openai', name: 'GPT', enabled: true, status: 'active', limit: { context: 128000 }, cost: [{ input: 1, output: 2 }] },
+    { id: 'off', modelID: 'off', providerID: 'openai', name: 'Off', enabled: false, status: 'active' },
+    { id: 'old', modelID: 'old', providerID: 'openai', name: 'Old', enabled: true, status: 'deprecated' },
+  ]);
+  assert.deepEqual(list.map(x => x.id), ['opencode/cat', 'openai/gpt']);
+  assert.deepEqual([list[0].free, list[1].free, list[0].context], [true, false, 262144]);
+  assert.equal(m.splitModelV2('opencode/cat-jam').id, 'cat-jam');
+  assert.deepEqual(m.splitModelV2('opencode/cat-jam'), { providerID: 'opencode', id: 'cat-jam' });
+  assert.deepEqual(m.commandListV2([{ name: 'review', description: 'revisa' }, { name: 'init' }]).map(c => c.name), ['init', 'review']);
+});

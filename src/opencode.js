@@ -2,13 +2,15 @@
 // ya corre, p. ej. en Docker) atiende todas las conversaciones; cada una es una sesión del servidor.
 // La conversación ofrece la misma interfaz que la de Claude Code (send/queue/cancel/close…) y traduce
 // los eventos del servidor a los de Astro.
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const net = require('net');
 const crypto = require('crypto');
 const map = require('./opencode-map');
 const { describeTool } = require('./claude');
+const { createOpencodeSessionV2 } = require('./opencode-v2');
 
-const EXPECTED = /^1\.19\./; // versión con la que se construyó la integración
+const EXPECTED = /^1\.19\./; // versión 1.x con la que se construyó la integración
+const EXPECTED_V2 = /^2\./; // y la 2.x (otra API, bajo /api)
 const START_TIMEOUT_MS = 20000;
 const fail = (code, message) => Object.assign(new Error(message), { code });
 
@@ -29,7 +31,8 @@ function freePort() {
 // En Windows OpenCode corre bajo cmd.exe (shell): hay que cerrar el árbol entero, no solo la consola.
 function stop(child) {
   try {
-    if (process.platform === 'win32' && child.pid) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+    // Síncrono: si Astro se cierra enseguida, un taskkill lanzado aparte podría no llegar a ejecutarse.
+    if (process.platform === 'win32' && child.pid) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 3000 });
     else child.kill();
   } catch { /* ya cerrado */ }
 }
@@ -43,6 +46,15 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
     const h = { 'Content-Type': 'application/json' };
     if (password) h.Authorization = 'Basic ' + Buffer.from('opencode:' + password).toString('base64');
     return h;
+  }
+
+  // OpenCode 2.x anuncia su versión en /api/info; en 1.x esa ruta no existe y se mira /global/health.
+  async function apiInfo(base, headers) {
+    let r;
+    try { r = await fetchImpl(`${base}/api/info`, { headers }); } catch (e) { throw fail('opencode_unreachable', `No pude conectar con OpenCode en ${base}: ${e.message}`); }
+    if (r.status === 401) throw fail('opencode_auth', 'OpenCode rechazó la contraseña.');
+    if (!r.ok) return null;
+    try { const j = await r.json(); return j && typeof j.version === 'string' ? j.version : null; } catch { return null; }
   }
 
   async function health(base, headers) {
@@ -59,7 +71,9 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
     const password = crypto.randomBytes(18).toString('hex');
     const bin = cfg.bin || 'opencode';
     const args = ['serve', '--hostname', '127.0.0.1', '--port', String(port)];
-    const opts = { env: { ...process.env, OPENCODE_SERVER_PASSWORD: password }, windowsHide: true };
+    // El servidor propio de Astro pregunta por todo: Astro aprueba solo lo que ya tienes permitido (en 2.x,
+    // que no admite reglas por sesión) y en 1.x mandan las reglas de cada sesión.
+    const opts = { env: { ...process.env, OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { '*': 'ask' } }) }, windowsHide: true };
     // En Windows `opencode` suele ser un .cmd (npm): va por la consola, como una sola línea.
     const child = process.platform === 'win32' ? spawnImpl([bin, ...args].join(' '), [], { ...opts, shell: true }) : spawnImpl(bin, args, opts);
     proc = child;
@@ -82,8 +96,10 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
         const cfg = settings();
         const conn = cfg.mode === 'local' ? await startLocal(cfg) : { base: String(cfg.url || '').replace(/\/+$/, ''), headers: headersFor(cfg.password) };
         if (!conn.base) throw fail('opencode_unreachable', 'Falta la dirección del servidor de OpenCode en Ajustes.');
+        const v2 = await apiInfo(conn.base, conn.headers);
+        if (v2 && /^[2-9]\./.test(v2)) return { ...conn, version: v2, api: 'v2', supported: EXPECTED_V2.test(v2) };
         const version = await health(conn.base, conn.headers);
-        return { ...conn, version, supported: EXPECTED.test(version) };
+        return { ...conn, version, api: 'v1', supported: EXPECTED.test(version) };
       })();
       starting.catch(() => { starting = null; });
     }
@@ -91,9 +107,11 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
   }
 
   async function request(method, path, { dir, body, query } = {}) {
-    const { base, headers } = await ready();
+    const { base, headers: conn, api } = await ready();
     const qs = new URLSearchParams(query || {});
-    if (dir) qs.set('directory', dir);
+    const headers = { ...conn };
+    // 2.x lee la carpeta de una cabecera (codificada: puede llevar acentos); 1.x, de la dirección.
+    if (dir) { if (api === 'v2') headers['x-opencode-directory'] = encodeURIComponent(dir); else qs.set('directory', dir); }
     const url = `${base}${path}${qs.toString() ? '?' + qs : ''}`;
     let r;
     try { r = await fetchImpl(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }); } catch (e) { throw fail('opencode_unreachable', e.message); }
@@ -102,7 +120,7 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
     const text = await r.text();
     let data;
     try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-    if (!r.ok) throw fail('opencode_http', (data && data.data && data.data.message) || `OpenCode respondió ${r.status} a ${method} ${path}`);
+    if (!r.ok) throw fail('opencode_http', (data && ((data.data && data.data.message) || data.message)) || `OpenCode respondió ${r.status} a ${method} ${path}`);
     return data;
   }
 
@@ -124,9 +142,11 @@ function createOpencodeServer({ settings, spawnImpl = spawn, fetchImpl = (...a) 
         let wait = 500;
         while (!s.closed) {
           try {
-            const { base, headers } = await ready();
+            const { base, headers, api } = await ready();
             s.ctrl = new AbortController();
-            const r = await fetchImpl(`${base}/event?directory=${encodeURIComponent(dir)}`, { headers, signal: s.ctrl.signal });
+            // 2.x: un único flujo global (/api/event) donde cada evento trae su carpeta.
+            const url = api === 'v2' ? `${base}/api/event` : `${base}/event?directory=${encodeURIComponent(dir)}`;
+            const r = await fetchImpl(url, { headers, signal: s.ctrl.signal });
             if (!r.ok || !r.body) throw new Error('sin flujo de eventos');
             wait = 500;
             const dec = new TextDecoder();
@@ -181,7 +201,7 @@ function partsOf(content) {
  * Una conversación de Astro con OpenCode. Misma interfaz que createClaudeSession:
  * send(text, onEvent) → { done, cancel }, queue(text, id), reply(permissionId, reply), close()…
  */
-function createOpencodeSession({ server, cwd, model, allowedTools = [], resume = null, contextWindow = async () => null }) {
+function createOpencodeSessionV1({ server, cwd, model, allowedTools = [], resume = null, contextWindow = async () => null }) {
   let sessionId = resume;
   let turn = null;
   let unsub = null;
@@ -370,4 +390,59 @@ function createOpencodeSession({ server, cwd, model, allowedTools = [], resume =
   };
 }
 
-module.exports = { createOpencodeServer, createOpencodeSession, partsOf, EXPECTED };
+/**
+ * La conversación de Astro con OpenCode, sea 1.x o 2.x: la API se sabe al conectar con el servidor, así
+ * que la implementación se elige en la primera pregunta. Misma interfaz que createClaudeSession.
+ */
+function createOpencodeSession(opts) {
+  const { server } = opts;
+  let impl = null;
+  let picking = null;
+  let closed = false;
+  let tools = null;
+  let starting = 0; // preguntas que aún esperan a saber la API
+  const pick = () => {
+    if (!picking) {
+      picking = server.ready().then(info => {
+        impl = info.api === 'v2' ? createOpencodeSessionV2(opts) : createOpencodeSessionV1(opts);
+        if (tools) impl.setTools(tools);
+        if (closed) impl.close();
+        return impl;
+      });
+      picking.catch(() => { picking = null; }); // sin servidor: la siguiente pregunta lo vuelve a intentar
+    }
+    return picking;
+  };
+  return {
+    get sessionId() { return impl ? impl.sessionId : opts.resume || null; },
+    get busy() { return starting > 0 || (!!impl && impl.busy); },
+    get model() { return opts.model; },
+    engine: 'opencode',
+
+    warm() { server.ready().catch(() => {}); return this; },
+    setIdle() { return this; },
+    setTools(list) { tools = [...list]; if (impl) impl.setTools(list); return this; },
+
+    send(text, onEvent = () => {}) {
+      let inner = null, cancelled = false, stop;
+      const stopped = new Promise((_, reject) => { stop = reject; });
+      stopped.catch(() => {});
+      starting++;
+      const started = pick().then(i => {
+        if (cancelled || closed) throw fail('cancelled', 'Cancelado');
+        inner = i.send(text, onEvent);
+        starting--;
+        return inner.done;
+      }).catch(e => { if (!inner) starting--; throw e; });
+      // Detener responde al instante, aunque el servidor aún esté arrancando.
+      const done = Promise.race([started, stopped]);
+      done.catch(() => {});
+      return { done, cancel() { cancelled = true; if (inner) inner.cancel(); else stop(fail('cancelled', 'Cancelado')); } };
+    },
+    queue(text, id) { return impl ? impl.queue(text, id) : false; },
+    reply(permissionId, decision) { return impl ? impl.reply(permissionId, decision) : Promise.reject(fail('failed', 'No hay una conversación abierta')); },
+    close() { closed = true; if (impl) impl.close(); },
+  };
+}
+
+module.exports = { createOpencodeServer, createOpencodeSession, createOpencodeSessionV1, partsOf, EXPECTED, EXPECTED_V2 };

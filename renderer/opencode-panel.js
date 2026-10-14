@@ -8,7 +8,7 @@ const FORM = `
 <article class="sheet ocform">
   <p class="label">Servidor de OpenCode</p>
   <div class="seg" data-f="mode"><button type="button" data-v="local">En este equipo</button><button type="button" data-v="remote">Otro servidor</button></div>
-  <small class="hint" data-local>Astro ejecuta OpenCode en este equipo cuando lo necesita (hace falta tenerlo instalado; probado con la 1.19).</small>
+  <small class="hint" data-local>Astro ejecuta OpenCode en este equipo cuando lo necesita (hace falta tenerlo instalado; probado con la 1.19 y la 2.0).</small>
   <small class="hint" data-remote>Un servidor de OpenCode que ya está en marcha, por ejemplo en Docker o en otro equipo.</small>
   <label data-remote>Dirección<input name="url" type="url" spellcheck="false" placeholder="http://127.0.0.1:4096"></label>
   <label data-remote>Contraseña del servidor <button type="button" class="more" data-a="clearpw" hidden>Quitar la guardada</button><input name="password" type="password" autocomplete="off"></label>
@@ -19,7 +19,7 @@ const FORM = `
   <select name="defaultModel" aria-label="Modelo por defecto"></select>
   <small class="hint" data-models>Conecta con el servidor para ver los modelos.</small>
 </article>
-<article class="sheet ocform">
+<article class="sheet ocform" data-v1only>
   <p class="label">Proveedor compatible con OpenAI</p>
   <small class="hint">Cualquier servicio con la API de OpenAI: su URL base, los modelos que quieres usar y tu clave.</small>
   <label>Nombre<input name="oname" placeholder="Mi proveedor"></label>
@@ -27,7 +27,7 @@ const FORM = `
   <label>Modelos<small>Separados por comas</small><input name="omodels" spellcheck="false" placeholder="gpt-4.1, mi-modelo"></label>
   <label>Clave de API <button type="button" class="more" data-a="clearkey" hidden>Quitar la guardada</button><input name="okey" type="password" autocomplete="off"></label>
 </article>
-<article class="sheet ocform">
+<article class="sheet ocform" data-v1only>
   <p class="label">GitHub Copilot</p>
   <small class="hint">Se abre GitHub en el navegador; escribe allí el código que aparece aquí. Usa tu suscripción de Copilot.</small>
   <button type="button" class="opt" data-a="copilot">Conectar Copilot</button>
@@ -42,7 +42,8 @@ const FORM = `
   <ul>
     <li>OpenCode no puede usar tu suscripción de Claude (Pro o Max): con ella, sigue usando Claude Code.</li>
     <li>Los modelos gratis de OpenCode pueden tardar o guardar lo que les envías para mejorar sus servicios: no los uses con código privado.</li>
-    <li>Astro está probado con OpenCode 1.19.</li>
+    <li>Astro está probado con OpenCode 1.19 y 2.0.</li>
+    <li data-v2only hidden>Con OpenCode 2.x los proveedores (incluidos un servicio compatible con OpenAI y GitHub Copilot) se conectan desde OpenCode con «opencode auth login»; sus modelos aparecen aquí.</li>
   </ul>
 </article>`;
 
@@ -100,9 +101,13 @@ export function opencodeForm(api, { onSaved } = {}) {
     out.textContent = 'Probando la conexión…';
     const r = await api.opencodeStatus().catch(e => ({ ok: false, message: e.message }));
     out.textContent = r.ok
-      ? `Conectado · OpenCode ${r.version}${r.supported ? '' : ' (Astro está probado con la 1.19: esta versión puede fallar)'}`
+      ? `Conectado · OpenCode ${r.version}${r.supported ? '' : ' (Astro está probado con la 1.19 y la 2.0: esta versión puede fallar)'}`
       : 'Sin conexión: ' + (r.message || 'OpenCode no responde.');
     out.classList.toggle('err', !r.ok);
+    // Con 2.x los proveedores se conectan desde OpenCode: esas dos tarjetas no valen.
+    const v2 = !!(r.ok && r.api === 'v2');
+    el.querySelectorAll('[data-v1only]').forEach(x => { x.hidden = v2; });
+    el.querySelectorAll('[data-v2only]').forEach(x => { x.hidden = !v2; });
     if (r.ok) loadModels();
   };
 
