@@ -1774,6 +1774,7 @@ if (new URLSearchParams(location.search).has('debug')) {
       active.history.push({ role: 'user', text: 'prueba' });
       active.history.push({ role: 'bot', data: { mood: 'happy', title: 'Respuesta de prueba', lines: ['Aquí va **lo importante**.'], detail: '## Pasos\n\n1. Uno\n2. Dos con `código`' } });
     },
+    gotaState: () => gota.debugState(),
     openAsk,
     showPlan: text => showPlanButton(active, text),
     openResume,

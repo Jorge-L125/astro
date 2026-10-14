@@ -326,7 +326,7 @@ body.panel-open .panel{transform:none}
 .caret::after{content:"▍";color:var(--accent);animation:b 1s steps(1) infinite}
 
 /* ---------- ajustes ---------- */
-.settings{position:fixed;right:calc(var(--char-w) - 10px);bottom:24px;width:300px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);overflow-y:auto;background:var(--cloud);border-radius:18px;box-shadow:var(--shadow);padding:18px;animation:pop .25s cubic-bezier(.2,1.4,.4,1) both;transform-origin:bottom right}
+.settings{position:fixed;right:calc(var(--char-w) - 10px);bottom:24px;width:380px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);overflow-y:auto;background:var(--cloud);border-radius:18px;box-shadow:var(--shadow);padding:18px;animation:pop .25s cubic-bezier(.2,1.4,.4,1) both;transform-origin:bottom right}
 body.left-side .settings{right:auto;left:calc(var(--char-w) - 10px);transform-origin:bottom left}
 .settings h3{margin:0 0 14px;font-size:15px}
 .settings .grp{margin-bottom:16px}
