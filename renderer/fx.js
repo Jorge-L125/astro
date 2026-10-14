@@ -3,11 +3,22 @@ const KINDS = {
   confetti: { life: 1.6, speed: [1.6, 3.2], up: 2.4, gravity: -6, size: 0.085, colors: [0xff6fb5, 0x3a8bff, 0xf2c94c, 0x8fd14f, 0xff6b4a], spin: 8, grow: 0 },
   sparkle: { life: 0.9, speed: [0.4, 1.2], up: 0.8, gravity: 0.4, size: 0.05, colors: [0xfff3b0, 0xc9a7ff, 0xffffff], spin: 0, grow: 0 },
   smoke: { life: 1.1, speed: [0.3, 0.8], up: 0.6, gravity: 0.3, size: 0.16, colors: [0x9a979f, 0xc4c2c8], spin: 1, grow: 1.5 },
+  // equis de error: suben despacio y de frente, sin girar
+  cross: { life: 1.6, speed: [0.5, 1.1], up: 0.9, gravity: -0.5, size: 0.34, colors: [0xff3b30, 0xe0453a, 0xff5a4d], spin: 0, grow: 0 },
 };
+
+/** Una equis (✕) centrada de lado 1, hecha con dos barras cruzadas. */
+export function crossGeometry(THREE) {
+  const bar = ang => {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    return new THREE.Shape([[-0.5, -0.14], [0.5, -0.14], [0.5, 0.14], [-0.5, 0.14]].map(([x, y]) => new THREE.Vector2(x * c - y * s, x * s + y * c)));
+  };
+  return new THREE.ShapeGeometry([bar(Math.PI / 4), bar(-Math.PI / 4)]);
+}
 
 export function createFx(THREE, scene, max = 60) {
   const root = new THREE.Group(); scene.add(root);
-  const geos = { confetti: new THREE.PlaneGeometry(1, 0.6), sparkle: new THREE.OctahedronGeometry(1), smoke: new THREE.SphereGeometry(1, 10, 8) };
+  const geos = { confetti: new THREE.PlaneGeometry(1, 0.6), sparkle: new THREE.OctahedronGeometry(1), smoke: new THREE.SphereGeometry(1, 10, 8), cross: crossGeometry(THREE) };
   const live = [];
   /** Lanza n partículas desde origin; devuelve cuántas caben (las demás se descartan). */
   function burst(kind, origin, n = 18) {

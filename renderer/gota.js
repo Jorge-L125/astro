@@ -166,11 +166,14 @@ export function createGota(host, opts = {}) {
   const runOf = new Map(); // id de sesión -> { n, err }: ayudantes de la tanda en curso
   let doneLine = null; // frase de fin pendiente: { text, until }
   let accName = 'none', acc = null, accLook = null;
+  // Ayudantes que acaban de terminar, para que el diseño los celebre (el pollo los eclosiona).
+  let justFinished = [];
   function setAccessory(n, react) {
     if (!isAccessory(n)) n = 'none';
     const next = accs.get(n);
     if (n !== 'none' && !next) n = 'none';
     showBuilt(acc, false);
+    justFinished = [];
     accName = n; acc = next;
     showBuilt(acc, true);
     hands.forEach((h, i) => { h.material = (acc && acc.handMaterial && acc.handMaterial[i]) || mShell; });
@@ -239,6 +242,7 @@ export function createGota(host, opts = {}) {
     // gestos de los trajes: pingüino, robot, pollo y momia
     waddle: { dur: 1.8, f: (p, t) => { const e = bump(p, 0, 1); return { rz: Math.sin(t * 11) * 0.16 * e, x: Math.sin(t * 11) * 0.05 * e, y: Math.abs(Math.sin(t * 11)) * 0.06 * e, hl: (0.2 + 0.2 * Math.sin(t * 22)) * e, hr: (0.2 - 0.2 * Math.sin(t * 22)) * e }; } },
     beep: { dur: 1.2, f: (p, t) => ({ ry: Math.round(Math.sin(t * 9) * 2) * 0.12 * (1 - p), y: Math.round(bump(p, 0, 1) * 3) * 0.05 }) },
+    peck: { dur: 1.2, f: p => { const d = Math.pow(Math.max(0, Math.sin(p * Math.PI * 6)), 2); return { rx: 0.42 * d, y: -0.05 * d, hl: 0.06 * d, hr: 0.06 * d }; } },
     flap: { dur: 1.4, f: (p, t) => { const e = bump(p, 0, 1); return { hl: (0.35 + 0.35 * Math.sin(t * 26)) * e, hr: (0.35 + 0.35 * Math.sin(t * 26)) * e, y: Math.abs(Math.sin(t * 13)) * 0.15 * e }; } },
     shamble: { dur: 2.2, f: (p, t) => { const e = ease(clamp(p / 0.15)) * ease(clamp((1 - p) / 0.15)); return { hl: 0.45 * e, hr: 0.45 * e, rz: Math.sin(t * 4) * 0.12 * e, x: Math.sin(t * 4) * 0.06 * e, rx: 0.1 * e }; } },
     scratch: { dur: 1.8, f: (p, t) => { const up = ease(clamp(p / 0.2)) * ease(clamp((1 - p) / 0.2)); return { hr: 1.25 * up, hrx: (-0.55 + Math.sin(t * 18) * 0.06) * up, rz: 0.12 * up }; } },
@@ -285,8 +289,8 @@ export function createGota(host, opts = {}) {
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 
   // Lo que un diseño necesita saber para animarse cada fotograma.
-  function accState(dt) {
-    return { T, dt, busy: !!busyOf.get(activeId) || appBusy, awake: mode === 'awake', acting: !!action,
+  function accState(dt, takeFinished = false) {
+    return { T, dt, play, setExpr, idleFor: T - lastActive, finished: takeFinished ? justFinished.splice(0) : [], busy: !!busyOf.get(activeId) || appBusy, awake: mode === 'awake', acting: !!action,
       hands, hw: hands[1].scale.x, helpers: agents.filter(a => a.sid === activeId && a.status === 'working' && !a.gone),
       spring, look, setLook: v => { accLook = v; }, petting, hover, say };
   }
@@ -432,6 +436,7 @@ export function createGota(host, opts = {}) {
     const a = agents.find(x => x.id === id);
     if (!a || a.status !== 'working') return;
     a.status = ok ? 'done' : 'error'; a.endT = T;
+    if (a.sid === activeId && acc) justFinished.push(a);
     busyOf.set(a.sid, agents.some(x => x.sid === a.sid && x.status === 'working'));
     const run = runOf.get(a.sid);
     if (run && !ok) run.err++;
@@ -504,6 +509,7 @@ export function createGota(host, opts = {}) {
     if (mode !== 'awake') return;
     const now = T; lastActive = now;
     clicks = clicks.filter(t => now - t < 2); clicks.push(now);
+    { const d = acc && accs.def(accName); if (d && d.poke) d.poke(moveKit(), clicks.length); }
     if (clicks.length >= 6) { clicks = []; setExpr('angry', 2.2); play('shake'); say('¡Oye! Eso hace cosquillas.'); lastClick = now; return; }
     if (clicks.length === 4) { setExpr('dizzy', 2); play('wobble'); say('Todo da vueltas…'); lastClick = now; return; }
     if (override === 'dizzy' || override === 'angry') { play('squish'); lastClick = now; return; }
@@ -795,6 +801,7 @@ export function createGota(host, opts = {}) {
       if (p >= 1) action = null;
     }
     if (petting) { a.rz += Math.sin(T * 6) * 0.07; a.sy *= 1 - 0.06 * (0.5 + 0.5 * Math.sin(T * 6)); }
+    if (acc && acc.pose && live) acc.pose(accState(dt), a);
 
     if (!down) {
       dragRY += spinVel * dt; spinVel *= Math.exp(-3 * dt);
@@ -857,7 +864,7 @@ export function createGota(host, opts = {}) {
       h.position.set(lerp(0.5, 1.13, hw) * sg + dx, -0.42 + up + Math.sin(T * 2 + i * 1.3) * 0.04, 0.2);
     });
     accRoot.scale.setScalar(Math.max(0.001, hw)); accRoot.visible = hw > 0.01;
-    if (acc && acc.update) acc.update(accState(dt));
+    if (acc && acc.update) acc.update(accState(dt, true));
     if (accName !== 'none') {
       const dd = Math.max(dt, 1e-3);
       const vy = (root.position.y - spring.py) / dd, ay = (vy - spring.pvy) / dd;
@@ -954,6 +961,7 @@ export function createGota(host, opts = {}) {
     },
     // vuelves al computador tras un rato sin usarlo
     // gesto de reposo del diseño puesto, ya (para probarlo sin esperar)
+    debugState: () => ({ hover, mode, acting: !!action, hands: hands.map(h => h.position.toArray().map(v => Math.round(v * 100) / 100)), hideK: acc && acc.parts ? acc.parts.hideK : null }),
     outfitIdle: () => { const d = acc && accs.def(accName); if (d && d.react.idle) d.react.idle(moveKit()); },
     welcomeBack: () => {
       if (!isLive() || appBusy) return;

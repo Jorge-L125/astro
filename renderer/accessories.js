@@ -6,6 +6,8 @@ import * as THREE from '../node_modules/three/build/three.module.js';
 
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const bump = (p, a, b) => (p >= a && p <= b ? Math.sin(Math.PI * (p - a) / (b - a)) : 0);
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeOut = k => 1 - Math.pow(1 - k, 3);
 
 let M = null; // materiales compartidos entre diseños, creados una vez
 function mats(kit) {
@@ -321,12 +323,25 @@ function buildNinja() {
   const shuriken = new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({ color: 0xc4c9d2, metalness: 0.85, roughness: 0.22 }));
   shuriken.scale.setScalar(1.5); shuriken.position.set(0.24, 0.26, 0.28);
 
-  const parts = { tails, shuriken, vanishT: -9, vanishK: 1 };
+  // hideK: cuánto se tapa la cara con las manos (cuando lo miran)
+  const parts = { tails, shuriken, vanishT: -9, vanishK: 1, hideK: 0, lastHideSay: -99 };
+  const face = new THREE.Vector3();
   return blank({ group: g, props: [shuriken], handMaterial: [hood, hood], parts,
     vanish(T) { parts.vanishT = T; },
-    hide() { parts.vanishT = -9; parts.vanishK = 1; },
+    hide() { parts.vanishT = -9; parts.vanishK = 1; parts.hideK = 0; },
+    // al taparse, se encoge y se inclina un poco hacia delante
+    pose(st, a) { a.rx += 0.1 * parts.hideK; a.sy *= 1 - 0.05 * parts.hideK; },
     update(st) {
       parts.vanishK = 1 - bump(st.T - parts.vanishT, 0, 0.7);
+      // si lo miran, sube las manos a la cara («no me ves»); si lo acarician o hace un gesto, no
+      const covering = st.awake && st.hover && !st.petting && !st.acting && parts.vanishK > 0.9;
+      parts.hideK = lerp(parts.hideK, covering ? 1 : 0, 1 - Math.exp(-8 * st.dt));
+      if (parts.hideK > 0.01) (st.hands || []).forEach((h, i) => h.position.lerp(face.set(i ? 0.3 : -0.3, 0.14, 1.08), parts.hideK));
+      if (parts.hideK > 0.9 && st.T - parts.lastHideSay > 14) {
+        parts.lastHideSay = st.T;
+        if (st.setExpr) st.setExpr('shy', 2);
+        if (st.say) st.say(['No me ves… soy una sombra.', '¡Shh! Estoy en modo sigilo.'][Math.floor(Math.random() * 2)]);
+      }
       tails.forEach((p, i) => { p.rotation.x = 0.35 + 0.15 * Math.sin(st.T * (st.busy ? 10 : 6) + i * 1.3) - st.spring.ax * 0.8; p.rotation.y = 0.12 * Math.sin(st.T * 4.5 + i); });
       shuriken.rotation.z = st.T * (st.busy ? 12 : 5);
     } });
@@ -695,6 +710,46 @@ function eggify(a, on) {
   else { a.m.geometry = a.egg.geo; a.m.rotation.z = 0; a.egg = null; if (a.mat) { a.mat.map = null; a.mat.needsUpdate = true; } }
 }
 
+// Tuercas y tornillos: los ayudantes del robot. Se crean una vez.
+let METAL = null;
+const METAL_C = new THREE.Color(0xb4bcc6);
+function metalGeos() {
+  if (METAL) return METAL;
+  const merge = list => {
+    const out = new THREE.BufferGeometry();
+    const parts = list.map(g => (g.index ? g.toNonIndexed() : g));
+    ['position', 'normal'].forEach(k => { const arr = []; parts.forEach(p => arr.push(...p.attributes[k].array)); out.setAttribute(k, new THREE.Float32BufferAttribute(arr, 3)); });
+    return out;
+  };
+  const sh = new THREE.Shape();
+  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; sh[i ? 'lineTo' : 'moveTo'](Math.cos(a) * 0.12, Math.sin(a) * 0.12); }
+  sh.closePath();
+  const hole = new THREE.Path(); hole.absarc(0, 0, 0.05, 0, Math.PI * 2, true); sh.holes.push(hole);
+  const nut = new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.01, bevelSegments: 2, curveSegments: 20 });
+  nut.translate(0, 0, -0.03); nut.rotateX(Math.PI / 2); nut.computeVertexNormals();
+  const head = new THREE.CylinderGeometry(0.085, 0.085, 0.07, 6); head.translate(0, 0.1, 0);
+  const pts = [new THREE.Vector2(0, 0.065), new THREE.Vector2(0.038, 0.065)];
+  for (let i = 0; i < 9; i++) { const y = 0.06 - i * 0.022; pts.push(new THREE.Vector2(0.04, y), new THREE.Vector2(0.03, y - 0.011)); }
+  pts.push(new THREE.Vector2(0.025, -0.15), new THREE.Vector2(0, -0.15));
+  const bolt = merge([head, new THREE.LatheGeometry(pts, 20)]); bolt.computeVertexNormals(); bolt.rotateZ(0.5);
+  METAL = { nut, bolt };
+  return METAL;
+}
+// Un ayudante pasa a ser tuerca o tornillo (y vuelve a ser gota con on = false).
+function nutify(a, on) {
+  if (!a.m || !!a.metal === on) return;
+  const mt = a.mat;
+  if (on) {
+    a.metal = { geo: a.m.geometry, color: mt ? mt.color.clone() : null, rough: mt ? mt.roughness : 0, met: mt ? mt.metalness : 0 };
+    a.m.geometry = a.id % 2 ? metalGeos().nut : metalGeos().bolt;
+    if (mt) { mt.color.copy(METAL_C).lerp(a.base || mt.color, 0.35); mt.roughness = 0.28; mt.metalness = 0.85; mt.needsUpdate = true; }
+  } else {
+    a.m.geometry = a.metal.geo; a.m.rotation.set(0, 0, 0);
+    if (mt) { if (a.metal.color) mt.color.copy(a.metal.color); mt.roughness = a.metal.rough; mt.metalness = a.metal.met; mt.needsUpdate = true; }
+    a.metal = null;
+  }
+}
+
 function buildChicken(kit) {
   const feather = kit.felt(0xfaf6ec), comb = kit.felt(0xe0453a), beakMat = kit.felt(0xf5a623);
   const g = makeHood(feather, 0.6);
@@ -703,16 +758,81 @@ function buildChicken(kit) {
   const beak = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 24), beakMat); beak.rotation.x = Math.PI / 2; beak.scale.set(1.3, 1, 0.8); beak.position.set(0, -0.2, 1.06); g.add(beak);
   const wattle = new THREE.Mesh(new THREE.SphereGeometry(0.07, 20, 14), comb); wattle.scale.set(0.8, 1.3, 0.7); wattle.position.set(0, -0.36, 0.95); g.add(wattle);
   [-0.5, 0, 0.5].forEach(z => { const f = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 14), feather); f.scale.set(0.45, 1.3, 0.5); f.position.set(z * 0.5, 0.15 + (z ? 0 : 0.1), -1.08); f.rotation.set(-0.6, 0, -z * 0.9); g.add(f); });
-  const parts = { nextCluck: 0 };
+  // pollitos: amarillos, de fieltro como el resto
+  const chickMat = kit.felt(0xffd84a), beakChick = kit.felt(0xf59a23), eyeChick = new THREE.MeshStandardMaterial({ color: 0x2a1d12, roughness: 0.4 });
+  const parts = { nextCluck: 0, brood: 0, broodSaid: false, nextPeck: 6, lastHatchSay: -99, hatches: [] };
+
+  // El huevo de un ayudante que terminó se abre y sale un pollito que se va andando.
+  function hatch(a, st) {
+    a.hatched = true; a.m.visible = false;
+    const at = (a.pos || a.m.position).clone();
+    const g = new THREE.Group(); g.position.copy(at); g.scale.setScalar(1.5); kit.scene.add(g);
+    const sm = new THREE.MeshStandardMaterial({ color: a.mat ? a.mat.color.clone() : 0xffffff, map: eggGeo().tex, roughness: 0.5, transparent: true, side: THREE.DoubleSide });
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), sm); top.scale.y = 1.25;
+    const low = new THREE.Mesh(new THREE.SphereGeometry(0.12, 20, 10, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), sm); low.scale.y = 1.1;
+    g.add(top, low);
+    const ch = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.085, 18, 12), chickMat); body.scale.set(1, 0.95, 1.05); ch.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.06, 18, 12), chickMat); head.position.set(0, 0.105, 0.02); ch.add(head);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.04, 10), beakChick); beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.1, 0.085); ch.add(beak);
+    [-1, 1].forEach(s => {
+      const e = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), eyeChick); e.position.set(s * 0.026, 0.12, 0.068); ch.add(e);
+      const w = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), chickMat); w.scale.set(0.35, 0.8, 1); w.position.set(s * 0.082, 0, 0); ch.add(w);
+    });
+    ch.scale.setScalar(0.001); g.add(ch);
+    const dir = at.x >= kit.bot.getWorldPosition(new THREE.Vector3()).x ? 1 : -1, ground = at.y - 0.05;
+    parts.hatches.push({
+      g, t: 0,
+      update(dt) {
+        this.t += dt; const t = this.t, pop = clamp(t / 0.3);
+        top.position.set(-dir * 0.08 * pop, 0.02 + 0.22 * pop, 0); top.rotation.z = dir * 0.9 * pop;
+        sm.opacity = 1 - clamp((t - 0.55) / 0.35); top.visible = low.visible = sm.opacity > 0.01;
+        const k = clamp((t - 0.15) / 0.3); ch.scale.setScalar(Math.max(0.001, easeOut(k) * (1 + 0.2 * Math.sin(k * Math.PI))));
+        if (t < 0.9) ch.position.y = 0.03;
+        else {
+          const w = t - 0.9;
+          g.position.x += dir * 1.0 * dt;
+          g.position.y = lerp(g.position.y, ground + 0.085 + Math.abs(Math.sin(w * 14)) * 0.035, 1 - Math.exp(-6 * dt));
+          g.position.z = lerp(g.position.z, 0.7, 1 - Math.exp(-2 * dt));
+          ch.position.y = 0; ch.rotation.y = lerp(ch.rotation.y, dir * Math.PI / 2, 1 - Math.exp(-8 * dt)); ch.rotation.z = Math.sin(w * 14) * 0.12;
+        }
+        return Math.abs(g.position.x) <= 3 && t <= 8;
+      },
+      dispose() { kit.scene.remove(g); g.traverse(o => { if (o.geometry) o.geometry.dispose(); }); sm.dispose(); },
+    });
+    if (st.say && st.T - parts.lastHatchSay > 4) { parts.lastHatchSay = st.T; st.say(['¡Nació un pollito!', '¡Pío! Tarea lista.', 'Otro pollito al mundo.'][Math.floor(Math.random() * 3)]); }
+  }
+
   return blank({ group: g, handMaterial: [feather, feather], parts,
+    // empolla mientras trabaja: se agacha sobre los huevos, con las alas abiertas
+    pose(st, a) {
+      parts.brood = lerp(parts.brood, st.awake && st.busy ? 1 : 0, 1 - Math.exp(-4 * st.dt));
+      const k = parts.brood;
+      if (k > 0.01) { a.sy *= 1 - 0.08 * k; a.sxw *= 1 + 0.07 * k; a.y -= 0.1 * k; a.hlx -= 0.12 * k; a.hrx += 0.12 * k; a.rz += Math.sin(st.T * 1.6) * 0.04 * k; }
+      if (st.awake && st.busy && !parts.broodSaid && k > 0.9 && st.say) { parts.broodSaid = true; st.say('Empollando… shh, no hagan ruido.'); }
+      if (!st.busy) parts.broodSaid = false;
+    },
     update(st) {
       for (const h of st.helpers) {
         if (!h.egg && st.awake && st.say && st.T > parts.nextCluck) { parts.nextCluck = st.T + 20; st.say(Math.random() < 0.5 ? '¡Puse un huevo!' : '¡Cloc, cloc! Huevo en camino.'); }
         eggify(h, true);
         h.m.rotation.z = Math.sin(st.T * 6 + h.id) * 0.25; // se tambalea mientras trabaja
       }
+      for (const h of st.finished || []) if (!h.hatched && h.status === 'done' && h.m) hatch(h, st);
+      for (const h of kit.agents()) if (h.hatched) h.m.visible = false; // el huevo ya se abrió
+      parts.hatches = parts.hatches.filter(f => f.update(st.dt) || (f.dispose(), false));
+      // en reposo, picotea el suelo de vez en cuando
+      if (st.awake && !st.acting && !st.busy && !st.hover && !st.petting && st.idleFor > 2 && st.T > parts.nextPeck && st.play) {
+        parts.nextPeck = st.T + 5 + Math.random() * 5;
+        st.play('peck');
+        if (Math.random() < 0.2 && st.say) st.say('Pic, pic…');
+      }
     },
-    hide() { for (const h of kit.agents()) eggify(h, false); } });
+    hide() {
+      for (const h of kit.agents()) { eggify(h, false); h.hatched = false; }
+      for (const f of parts.hatches) f.dispose();
+      parts.hatches = []; parts.brood = 0; parts.broodSaid = false;
+    } });
 }
 
 function buildMummy() {
@@ -807,6 +927,12 @@ function buildRobot(kit) {
   return blank({ group: g, handMaterial: [metal, metal], eyeMode: 'glow', parts,
     update(st) {
       bulbMat.emissiveIntensity = st.busy ? (st.T % 0.5 < 0.25 ? 1.6 : 0.2) : (st.T % 1.4 < 0.7 ? 1.2 : 0.15);
+      // los ayudantes son tuercas y tornillos que giran
+      for (const h of st.helpers) {
+        nutify(h, true);
+        h.m.rotation.x = 0.5 + 0.2 * Math.sin(st.T * 1.3 + h.id);
+        h.m.rotation.y += st.dt * 5;
+      }
       for (const s of sparks) {
         s.t += st.dt;
         if (s.t > 0.45 && st.busy && st.awake && Math.random() < st.dt * 2.5) {
@@ -817,7 +943,7 @@ function buildRobot(kit) {
         if (s.m.visible) { s.m.position.copy(s.o).addScaledVector(s.v, k); s.m.position.y -= 4 * k * k; s.m.scale.setScalar(1 - k / 0.45); s.m.rotation.set(k * 9, k * 7, 0); }
       }
     },
-    hide() { for (const s of sparks) { s.t = 9; s.m.visible = false; } } });
+    hide() { for (const s of sparks) { s.t = 9; s.m.visible = false; } for (const h of kit.agents()) nutify(h, false); } });
 }
 
 // «1 tarea terminada» / «3 tareas terminadas»; fijo: el verbo no concuerda en número («al punto»).
@@ -931,6 +1057,18 @@ const DEFS = [
       done: m => { m.play('waddle'); m.setExpr('joy', 1.4); } },
     doneLine: n => `¡Noot noot! ${tareas(n)}.` },
   { key: 'robot', label: 'Robot retro', emoji: '🤖', build: buildRobot,
+    // varios clics seguidos lo «golpean»: salen equis de error (3 o más clics en dos segundos)
+    poke: (m, n) => {
+      if (n < 3) return;
+      // delante de la cara: dentro del cuerpo quedarían tapadas
+      const o = m.at.clone(); o.y -= 0.6; o.z += 1.2;
+      m.fx.burst('cross', o, 2 + Math.min(n, 8));
+      const p = m.built && m.built.parts;
+      if (p && m.T >= (p.nextErr || 0)) {
+        p.nextErr = m.T + 2.5;
+        m.say(m.pick(['ERROR 404: ¡golpe no encontrado!', 'ERROR: ¡no me golpees! BZZT.', 'FALLO CRÍTICO… ¡ay, mi circuito!']));
+      }
+    },
     react: { on: m => { m.play('beep'); m.setExpr('focus', 1.4); m.say('BIP BOP. Modo robot activado.'); },
       idle: m => { m.play('beep'); m.say('BIP.'); },
       done: m => { m.play('beep'); m.setExpr('proud', 1.4); } },
