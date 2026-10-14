@@ -2,12 +2,6 @@
 
 Asistente de escritorio que flota sobre la pantalla (una gota 3D con personalidad) y habla con **Claude Code** usando tu instalación local de `claude` (o con **OpenCode**, si prefieres). Funciona en Windows y macOS.
 
-<!--
-  CAPTURAS (pendientes): guárdalas en `assets/capturas/` (no en `docs/`, que no va al repositorio) y enlázalas aquí con
-  ![texto](assets/capturas/nombre.png). Ideas: la gota con una nube de respuesta, los ayudantes orbitando, el panel de pasos,
-  el menú de Ajustes con los diseños, y un par de diseños en acción (gato, pollo con huevos, robot con tuercas).
--->
-
 ## Qué hace
 
 - **Habla con Claude Code o con OpenCode.** Cada sesión elige su motor y su modelo, y trabaja en la carpeta de tu proyecto (con su `CLAUDE.md`, sus skills y sus comandos).
@@ -17,6 +11,36 @@ Asistente de escritorio que flota sobre la pantalla (una gota 3D con personalida
 - **Ve tus capturas de pantalla** y te ofrece preguntar sobre ellas; avisa cuando termina cualquier sesión de Claude Code; vigila el contexto con un anillo.
 - **Muchos diseños con vida propia** (gato, pollo, robot, ninja, dinosaurio…), cada uno con sus gestos y sus propios ayudantes: ovillos de lana, huevos que eclosionan, tuercas y tornillos…
 - **Se llama desde la terminal** con `astro` y **se actualiza solo** (Windows).
+
+## Cómo se ve
+
+<p align="center"><img src="assets/capturas/astro.png" alt="Astro: la gota con su barra de botones" width="560"></p>
+
+<table>
+  <tr>
+    <td align="center"><img src="assets/capturas/ayudantes.png" alt="Los ayudantes orbitan y la nube lista lo que hace cada uno" width="380"><br><sub>Los ayudantes orbitan y la nube cuenta qué hace cada uno</sub></td>
+    <td align="center"><img src="assets/capturas/pasos.png" alt="Pasos de Claude en vivo, en el panel lateral" width="380"><br><sub>Los pasos de Claude, en vivo</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/capturas/plan.png" alt="El plan de Claude entero, en el panel lateral" width="380"><br><sub>«Ver el plan» abre el plan entero</sub></td>
+    <td align="center"><img src="assets/capturas/historial.png" alt="Historial de la sesión con búsqueda" width="380"><br><sub><code>/historial</code>: toda la conversación de la sesión</sub></td>
+  </tr>
+</table>
+
+<p align="center"><img src="assets/capturas/ajustes.png" alt="Ajustes: color, diseños, cajas, posición y tema" width="520"><br><sub>Ajustes, con los diseños a elegir</sub></p>
+
+**Algunos diseños en acción:**
+
+<table>
+  <tr>
+    <td align="center"><img src="assets/capturas/diseno-gato.png" alt="El gato con ovillos de lana como ayudantes" width="270"><br><sub>🐱 Gato: ayudantes de lana</sub></td>
+    <td align="center"><img src="assets/capturas/diseno-pollo.png" alt="El pollo con huevos y un pollito recién nacido" width="270"><br><sub>🐔 Pollo: los huevos eclosionan</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/capturas/diseno-robot.png" alt="El robot con equis de error tras varios clics" width="270"><br><sub>🤖 Robot: equis de error si le das clics</sub></td>
+    <td align="center"><img src="assets/capturas/diseno-ninja.png" alt="El ninja tapándose la cara con las manos" width="270"><br><sub>🥷 Ninja: se tapa la cara si lo miras</sub></td>
+  </tr>
+</table>
 
 ## Requisitos
 

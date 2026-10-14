@@ -1770,9 +1770,10 @@ if (new URLSearchParams(location.search).has('debug')) {
     closeSession: i => closeSession(sessions[i]),
     say: text => { const c = cloud(active); c.textContent = text; },
     setCommands: list => { commands = list; },
-    fakeHistory: () => {
-      active.history.push({ role: 'user', text: 'prueba' });
-      active.history.push({ role: 'bot', data: { mood: 'happy', title: 'Respuesta de prueba', lines: ['Aquí va **lo importante**.'], detail: '## Pasos\n\n1. Uno\n2. Dos con `código`' } });
+    // pares [pregunta, respuesta] para ver el historial sin hablar con Claude
+    fakeHistory: pairs => {
+      const list = pairs || [['prueba', { mood: 'happy', title: 'Respuesta de prueba', lines: ['Aquí va **lo importante**.'], detail: '## Pasos\n\n1. Uno\n2. Dos con `código`' }]];
+      for (const [q, data] of list) { active.history.push({ role: 'user', text: q }); active.history.push({ role: 'bot', data }); }
     },
     gotaState: () => gota.debugState(),
     openAsk,
@@ -1780,13 +1781,14 @@ if (new URLSearchParams(location.search).has('debug')) {
     openResume,
     openFolder,
     // Simula n subagentes de Claude (lanzar, trabajar y terminar) para ver las órbitas y los pasos.
-    fakeSubagents(n = 12) {
+    fakeSubagents(n = 12, labels = []) {
       const s = active;
+      const nameOf = i => (labels[i] && labels[i].name) || 'Subagente ' + (i + 1), taskOf = i => (labels[i] && labels[i].task) || 'Tarea de prueba ' + (i + 1), fileOf = i => (labels[i] && labels[i].file) || `archivo${i + 1}.js`;
       s.steps = []; s.stepsT0 = Date.now(); clearAgents(s); setBusy(s, true);
       const t = thinkingCloud(s); stepsLink(s, t);
       const on = progressInto(t, s);
-      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-start', key: 'k' + i, name: 'Subagente ' + (i + 1), task: 'Tarea de prueba ' + (i + 1) }), i * 150);
-      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-tool', key: 'k' + i, name: 'Read', label: `Leyendo archivo${i + 1}.js` }), 2000 + i * 100);
+      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-start', key: 'k' + i, name: nameOf(i), task: taskOf(i) }), i * 150);
+      for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-tool', key: 'k' + i, name: 'Read', label: 'Leyendo ' + fileOf(i) }), 2000 + i * 100);
       for (let i = 0; i < n; i++) setTimeout(() => on({ type: 'agent-end', key: 'k' + i, ok: i % 7 !== 3, text: 'Resultado ' + (i + 1) }), 6000 + i * 400);
       setTimeout(() => { t.remove(); s.stepsLink = null; setBusy(s, false); showStepsButton(s); }, 6000 + n * 400 + 1500);
     },
