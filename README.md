@@ -161,7 +161,7 @@ Además de Claude Code, cada sesión puede trabajar con [OpenCode](https://openc
 
 Funciona igual que con Claude: subagentes, pasos, `/resume`, `/historial`, comandos `/` del servidor y escribir mientras trabaja. Los permisos se piden **en el momento**: *Permitir* (esta vez), *Siempre* (en esta conversación) o *No*. Lo que tengas en *Puede usar sin preguntar* vale también para OpenCode.
 
-**Dónde corre.** Con OpenCode instalado en tu equipo no hay que configurar nada: Astro lo arranca cuando lo necesitas (con una contraseña de un solo uso, solo accesible desde tu equipo) y lo apaga al cerrarse. Si no está instalado, Astro te lo dice al usarlo.
+**Dónde corre.** Con OpenCode instalado en tu equipo no hay que configurar nada: Astro lo arranca cuando lo necesitas (con una contraseña de un solo uso, solo accesible desde tu equipo) y lo apaga al cerrarse. Astro lo busca en el PATH, en el PATH actual del registro de Windows y en las carpetas habituales (`~/.opencode/bin`, npm, Scoop…), así que lo encuentra aunque lo hayas instalado después de abrir sesión. Si no está instalado, Astro te lo dice al usarlo.
 
 Para usar un servidor que ya está en marcha (otro equipo, o Docker para probarlo aislado), elige *Otro servidor* en *Ajustes › Ajustes de OpenCode…* y pon su dirección, su contraseña y las carpetas compartidas (`carpeta de tu equipo => carpeta en el servidor`). Por ejemplo, con Docker:
 
@@ -317,6 +317,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/skill-descriptions.js` — descripciones de las skills para el menú de comandos.
 - `src/opencode.js` — OpenCode como motor: arranca o conecta el servidor y lleva cada conversación con la misma forma que `src/claude.js`.
 - `src/opencode-v2.js` — la conversación con OpenCode 2.x (otra API y otros eventos); `src/opencode.js` elige entre 1.x y 2.x al conectar.
+- `src/opencode-bin.js` — dónde está OpenCode en este equipo (PATH, registro de Windows y carpetas habituales).
 - `src/opencode-api.js` — modelos, comandos y conversaciones guardadas, según la versión del servidor.
 - `src/opencode-map.js` — traducciones entre OpenCode y Astro (respuesta, herramientas, permisos, carpetas, historial).
 - `src/opencode-settings.js` + `renderer/opencode-panel.js` — ajustes de OpenCode; la contraseña y la clave van cifradas.
