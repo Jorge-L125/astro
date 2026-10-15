@@ -3,6 +3,10 @@ const path = require('path');
 const { planFileOf } = require('./plans');
 
 // Resumen corto de lo que hace una herramienta, para mostrarlo en la nube de "pensando".
+// Archivo que crea o cambia una herramienta (para ofrecer verlo si es una imagen o una página).
+function writtenFile(name, input) {
+  return /^(Write|Edit|MultiEdit)$/.test(name) && input && typeof input.file_path === 'string' ? { file: input.file_path } : {};
+}
 function describeTool(name, input = {}) {
   const file = input.file_path || input.path || input.notebook_path;
   const base = file ? path.basename(String(file)) : '';
@@ -185,7 +189,7 @@ function createClaudeSession({ launcher, cwd, idleMs = 10 * 60 * 1000, resume = 
             t.agents.add(part.id);
             t.onEvent({ type: 'agent-start', key: part.id, name: String(i.description || 'Subagente'), kind: String(i.subagent_type || ''), task: String(i.prompt || '') });
           }
-          t.onEvent({ type: 'tool', name: part.name, label: describeTool(part.name, part.input) });
+          t.onEvent({ type: 'tool', name: part.name, label: describeTool(part.name, part.input), ...writtenFile(part.name, part.input) });
         }
       }
     } else if (ev.type === 'user' && !parent && ev.message && t.pending.length && typeof ev.message.content === 'string') {
@@ -350,4 +354,4 @@ function createPool(factory) {
   };
 }
 
-module.exports = { createClaudeSession, createPool, describeTool, buildArgs, lineSplitter, contextUsage };
+module.exports = { createClaudeSession, createPool, describeTool, writtenFile, buildArgs, lineSplitter, contextUsage };

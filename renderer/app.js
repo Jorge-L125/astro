@@ -3,7 +3,7 @@ import { esc, inline, md, buildSheets, previewText } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 import { groupDenials } from './tools.js';
-import { designKind, svgSrc, htmlDoc } from './preview.js';
+import { designKind, svgSrc, htmlDoc, isViewableFile } from './preview.js';
 import { opencodeForm, opencodeEvent } from './opencode-panel.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
@@ -540,6 +540,23 @@ function showSheetsButton(s, sheets, title) {
   s.clouds.append(b);
   stickToBottom(s);
 }
+// En el propio chat: el código de la respuesta (dibujado si es un diseño) y las imágenes o páginas
+// que Claude creó, sin tener que abrir las hojas ni el historial.
+function showExtras(s, data, files = []) {
+  if (data && data.code && data.code.content) {
+    const c = cloud(s, 'codecloud');
+    codeBlock(c, data.code, data.code.lang || 'código');
+  }
+  if (files && files.length) {
+    const c = cloud(s, 'filescloud');
+    c.innerHTML = '<p class="lbl"></p>';
+    c.querySelector('.lbl').textContent = files.length === 1 ? 'Lo que creé' : `Lo que creé (${files.length})`;
+    const box = fileButtons(files);
+    c.append(box);
+    box.querySelector('button').click(); // el primero ya abierto
+  }
+  stickToBottom(s);
+}
 function showStepsButton(s) {
   const b = document.createElement('button');
   b.className = 'stepsbtn hit';
@@ -806,6 +823,8 @@ const progressInto = (el, s) => ev => {
   if (ev.type === 'permission') { say('Esperando tu permiso…'); livePermission(s, ev); return; }
   const find = key => s.agents.find(a => a.key === key);
   if (ev.type === 'tool') {
+    // imágenes y páginas que crea: se ofrecen en el chat al terminar
+    if (isViewableFile(ev.file) && s.files && !s.files.includes(ev.file) && s.files.length < 8) s.files.push(ev.file);
     // Lanzar un subagente ya tiene su propio paso y su estado («N subagentes trabajando»).
     if (ev.name === 'Agent' || ev.name === 'Task') return;
     say(ev.label + '…');
@@ -995,7 +1014,7 @@ async function ask(s, text, capture = null, opts = {}) {
   }
   s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
-  s.steps = []; s.stepsT0 = Date.now();
+  s.steps = []; s.stepsT0 = Date.now(); s.files = [];
   let t = thinkingCloud(s), data, denials = [], plan = null;
   stepsLink(s, t);
   try {
@@ -1058,6 +1077,7 @@ async function ask(s, text, capture = null, opts = {}) {
     if (data.mood === 'worried') gota.act('shake');
   }
   if (denials.length) askPermission(s, denials);
+  showExtras(s, data, s.files);
   const sheets = buildSheets(data);
   if (sheets.length) showSheetsButton(s, sheets, data.title);
   if (plan) showPlanButton(s, plan);
@@ -1412,6 +1432,7 @@ async function resumeInto(s, c) {
   if (c.last) { const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = c.last; s.clouds.append(you); }
   if (data) {
     for (const line of data.lines.slice(0, 2)) { const l = cloud(s); l.textContent = String(line); }
+    showExtras(s, data, []);
     const sheets = buildSheets(data);
     if (sheets.length) showSheetsButton(s, sheets, data.title);
     if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);

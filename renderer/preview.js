@@ -11,6 +11,9 @@ export function designKind(code) {
   return null;
 }
 
+/** Imágenes y páginas que Claude crea o edita y que se pueden ver en Astro. */
+export const isViewableFile = f => typeof f === 'string' && /\.(html?|svg|png|jpe?g|gif|webp)$/i.test(f);
+
 /** Un SVG como dirección data: para una <img> (así sus scripts nunca se ejecutan). */
 export function svgSrc(content) {
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(content);

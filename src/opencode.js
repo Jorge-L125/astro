@@ -6,7 +6,7 @@ const { spawn, spawnSync } = require('child_process');
 const net = require('net');
 const crypto = require('crypto');
 const map = require('./opencode-map');
-const { describeTool } = require('./claude');
+const { describeTool, writtenFile } = require('./claude');
 const { createOpencodeSessionV2 } = require('./opencode-v2');
 const { resolveOpencode } = require('./opencode-bin');
 
@@ -276,7 +276,7 @@ function createOpencodeSessionV1({ server, cwd, model, allowedTools = [], resume
           }
           return;
         }
-        if (st.status === 'running' && seen !== 'running') t.onEvent({ type: 'tool', name: ct.name, label: describeTool(ct.name, ct.input) });
+        if (st.status === 'running' && seen !== 'running') t.onEvent({ type: 'tool', name: ct.name, label: describeTool(ct.name, ct.input), ...writtenFile(ct.name, ct.input) });
         return;
       }
       if (part.type === 'text' && part.time && part.time.end && part.text && !t.texts.has(part.id)) {

@@ -21,3 +21,9 @@ test('el SVG va como dirección data: y el HTML con fondo blanco', async () => {
   assert.match(htmlDoc('<p>x</p>'), /^<meta charset="utf-8"><style>html\{background:#fff/);
   assert.match(htmlDoc('<html><head><title>t</title></head></html>'), /<head><meta charset="utf-8">/);
 });
+
+test('solo se ofrecen para ver imágenes y páginas', async () => {
+  const { isViewableFile } = await load();
+  for (const f of ['/p/logo.svg', 'C:/p/index.HTML', '/p/foto.jpeg', '/p/a.webp']) assert.equal(isViewableFile(f), true, f);
+  for (const f of ['/p/notas.md', '/p/app.js', '/p/svg', undefined]) assert.equal(isViewableFile(f), false, String(f));
+});

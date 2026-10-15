@@ -440,3 +440,13 @@ body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,t
 .hchoice ul{margin:0;padding-left:18px}
 .hshot{display:block;max-width:100%;max-height:160px;margin-top:8px;border-radius:10px;cursor:zoom-in;background:#fff}
 .hshot.big{max-height:none;cursor:zoom-out}
+/* el código y los diseños de la respuesta, en el propio chat */
+.cloud.codecloud{padding:0;overflow:hidden;width:min(460px,100%);background:var(--code)}
+.cloud.codecloud pre{margin:0;border-radius:0;padding:6px 18px 16px;max-height:240px;overflow:auto;font-size:12.5px}
+.cloud.codecloud .design iframe{height:300px}
+.cloud.codecloud .design img{max-height:280px}
+.cloud.filescloud{width:min(460px,100%)}
+.cloud.filescloud .lbl{margin:0;font-size:12.5px;font-weight:700;color:var(--muted)}
+.cloud.filescloud .hfiles{margin-top:8px}
+.cloud.filescloud .design iframe{height:300px}
+.cloud.codecloud pre{background:var(--code);color:var(--codeink)}
