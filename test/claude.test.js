@@ -253,7 +253,9 @@ test('con subagentes en segundo plano espera la respuesta final y cuenta lo que 
 test('si Claude escribe el plan en ~/.claude/plans, la respuesta dice dónde está', async t => {
   const s = session();
   t.after(() => s.close());
-  const r = await s.send('plan').done;
+  const events = [];
+  const r = await s.send('plan', ev => events.push(ev)).done;
+  assert.equal(events.find(e => e.type === 'tool' && e.name === 'Write').file, '/home/a/.claude/plans/mi-plan.md', 'el paso dice qué archivo escribió');
   assert.equal(r.planFile, '/home/a/.claude/plans/mi-plan.md');
   assert.equal(r.plan, null);
   assert.equal((await s.send('otra').done).planFile, null, 'el siguiente turno empieza sin plan');

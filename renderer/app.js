@@ -3,6 +3,7 @@ import { esc, inline, md, buildSheets, previewText } from './markdown.js';
 import { formatAccel, altKey } from './keys.js';
 import { parseSlash, suggest, commandReply, plainReply } from './slash.js';
 import { groupDenials } from './tools.js';
+import { designKind, svgSrc, htmlDoc, isViewableFile } from './preview.js';
 import { opencodeForm, opencodeEvent } from './opencode-panel.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
@@ -539,6 +540,23 @@ function showSheetsButton(s, sheets, title) {
   s.clouds.append(b);
   stickToBottom(s);
 }
+// En el propio chat: el código de la respuesta (dibujado si es un diseño) y las imágenes o páginas
+// que Claude creó, sin tener que abrir las hojas ni el historial.
+function showExtras(s, data, files = []) {
+  if (data && data.code && data.code.content) {
+    const c = cloud(s, 'codecloud');
+    codeBlock(c, data.code, data.code.lang || 'código');
+  }
+  if (files && files.length) {
+    const c = cloud(s, 'filescloud');
+    c.innerHTML = '<p class="lbl"></p>';
+    c.querySelector('.lbl').textContent = files.length === 1 ? 'Lo que creé' : `Lo que creé (${files.length})`;
+    const box = fileButtons(files);
+    c.append(box);
+    box.querySelector('button').click(); // el primero ya abierto
+  }
+  stickToBottom(s);
+}
 function showStepsButton(s) {
   const b = document.createElement('button');
   b.className = 'stepsbtn hit';
@@ -556,6 +574,41 @@ function showPlanButton(s, plan) {
   s.clouds.append(b);
   stickToBottom(s);
 }
+// Un diseño dibujado: imagen (o SVG) en una <img>; una página, en un marco aislado y sin scripts.
+function designView(kind, content, name = 'Diseño') {
+  const wrap = document.createElement('div');
+  wrap.className = 'design';
+  if (kind === 'html') {
+    const f = document.createElement('iframe');
+    f.setAttribute('sandbox', ''); f.title = 'Vista previa: ' + name; f.srcdoc = htmlDoc(content);
+    wrap.append(f);
+  } else {
+    const img = document.createElement('img');
+    img.alt = name; img.src = kind === 'svg' ? svgSrc(content) : content;
+    img.onclick = () => wrap.classList.toggle('big');
+    wrap.append(img);
+  }
+  return wrap;
+}
+// Código de una respuesta: barra con «Copiar» y, si es HTML o SVG, el diseño dibujado encima.
+function codeBlock(el, code, label) {
+  el.innerHTML = '<div class="codebar"><span></span><span class="acts"><button class="cp">Copiar</button></span></div><pre><code></code></pre>';
+  el.querySelector('span').textContent = label;
+  el.querySelector('code').textContent = code.content;
+  const cb = el.querySelector('.cp');
+  cb.onclick = async () => {
+    try { await navigator.clipboard.writeText(code.content); cb.textContent = 'Copiado'; } catch { cb.textContent = 'Selecciona y copia'; }
+    setTimeout(() => { cb.textContent = 'Copiar'; }, 1600);
+  };
+  const kind = designKind(code);
+  if (!kind) return;
+  const view = designView(kind, code.content);
+  el.querySelector('.codebar').after(view);
+  const tb = document.createElement('button');
+  tb.textContent = 'Ocultar diseño';
+  tb.onclick = () => { view.hidden = !view.hidden; tb.textContent = view.hidden ? 'Ver diseño' : 'Ocultar diseño'; };
+  el.querySelector('.acts').prepend(tb);
+}
 function openSheets(sheets, title) {
   panelAgent = null;
   openShell(title || 'Respuesta completa', sheets.length === 1 ? '1 hoja' : sheets.length + ' hojas', blobIco(active.color));
@@ -565,14 +618,7 @@ function openSheets(sheets, title) {
     art.className = 'sheet' + (s.kind === 'code' ? ' codesheet' : '');
     art.id = 'sheet-' + i;
     if (s.kind === 'code') {
-      art.innerHTML = '<div class="codebar"><span></span><button>Copiar</button></div><pre><code></code></pre>';
-      art.querySelector('span').textContent = 'Hoja ' + (i + 1) + ' · ' + (s.code.lang || 'código');
-      art.querySelector('code').textContent = s.code.content;
-      const cb = art.querySelector('button');
-      cb.onclick = async () => {
-        try { await navigator.clipboard.writeText(s.code.content); cb.textContent = 'Copiado'; } catch { cb.textContent = 'Selecciona y copia'; }
-        setTimeout(() => { cb.textContent = 'Copiar'; }, 1600);
-      };
+      codeBlock(art, s.code, 'Hoja ' + (i + 1) + ' · ' + (s.code.lang || 'código'));
     } else {
       art.innerHTML = '<p class="n"></p>' + md(s.text);
       art.querySelector('.n').textContent = 'Hoja ' + (i + 1) + ' de ' + sheets.length;
@@ -777,6 +823,8 @@ const progressInto = (el, s) => ev => {
   if (ev.type === 'permission') { say('Esperando tu permiso…'); livePermission(s, ev); return; }
   const find = key => s.agents.find(a => a.key === key);
   if (ev.type === 'tool') {
+    // imágenes y páginas que crea: se ofrecen en el chat al terminar
+    if (isViewableFile(ev.file) && s.files && !s.files.includes(ev.file) && s.files.length < 8) s.files.push(ev.file);
     // Lanzar un subagente ya tiene su propio paso y su estado («N subagentes trabajando»).
     if (ev.name === 'Agent' || ev.name === 'Task') return;
     say(ev.label + '…');
@@ -966,7 +1014,7 @@ async function ask(s, text, capture = null, opts = {}) {
   }
   s.history.push({ role: 'user', text: capture ? text + ' [con una captura de pantalla adjunta]' : text });
   setMood(s, 'thinking');
-  s.steps = []; s.stepsT0 = Date.now();
+  s.steps = []; s.stepsT0 = Date.now(); s.files = [];
   let t = thinkingCloud(s), data, denials = [], plan = null;
   stepsLink(s, t);
   try {
@@ -1029,6 +1077,7 @@ async function ask(s, text, capture = null, opts = {}) {
     if (data.mood === 'worried') gota.act('shake');
   }
   if (denials.length) askPermission(s, denials);
+  showExtras(s, data, s.files);
   const sheets = buildSheets(data);
   if (sheets.length) showSheetsButton(s, sheets, data.title);
   if (plan) showPlanButton(s, plan);
@@ -1232,7 +1281,8 @@ async function openHistory() {
   const list = document.createElement('div');
   list.className = 'hist';
   pb.append(search, list);
-  const textOf = m => (m.role === 'user' ? m.text : [m.data && m.data.title, ...((m.data && m.data.lines) || []), m.data && m.data.detail, m.text].filter(Boolean).join(' '));
+  const textOf = m => (m.role === 'user' ? m.text : [m.data && m.data.title, ...((m.data && m.data.lines) || []), m.data && m.data.detail,
+    m.data && m.data.code && m.data.code.content, m.data && m.data.choice && m.data.choice.prompt, m.text].filter(Boolean).join(' '));
   const paint = () => {
     const q = search.value.trim().toLowerCase();
     list.innerHTML = '';
@@ -1244,6 +1294,13 @@ async function openHistory() {
         el.className = 'hmsg you';
         el.innerHTML = '<small></small><p></p>';
         el.querySelector('p').textContent = m.text;
+        // las capturas que adjuntaste; un clic las amplía
+        for (const src of m.images || []) {
+          const img = document.createElement('img');
+          img.className = 'hshot'; img.alt = 'Captura adjunta'; img.src = src;
+          img.onclick = () => img.classList.toggle('big');
+          el.append(img);
+        }
       } else {
         el.className = 'hmsg bot sheet';
         const d = m.data;
@@ -1253,6 +1310,21 @@ async function openHistory() {
           el.querySelector('.lines').innerHTML = (d.lines || []).map(l => '<p>' + inline(l) + '</p>').join('');
           el.querySelector('.detail').innerHTML = md(d.detail || '');
         } else el.querySelector('.detail').innerHTML = md(m.text);
+        if (d && d.choice && Array.isArray(d.choice.options) && d.choice.options.length) {
+          const c = document.createElement('div');
+          c.className = 'hchoice';
+          c.innerHTML = '<p></p><ul></ul>';
+          c.querySelector('p').textContent = d.choice.prompt || 'Opciones';
+          for (const o of d.choice.options) { const li = document.createElement('li'); li.textContent = o; c.querySelector('ul').append(li); }
+          el.append(c);
+        }
+        if (d && d.code && d.code.content) {
+          const c = document.createElement('div');
+          c.className = 'hcode';
+          codeBlock(c, d.code, d.code.lang || 'código');
+          el.append(c);
+        }
+        if (m.files && m.files.length) el.append(fileButtons(m.files));
       }
       el.querySelector('small').textContent = (m.role === 'user' ? 'Tú' : 'Astro') + (when ? ' · ' + when : '');
       list.append(el);
@@ -1262,6 +1334,34 @@ async function openHistory() {
   };
   search.addEventListener('input', paint);
   paint();
+}
+
+// Imágenes y páginas que Claude creó en esa respuesta: un botón por archivo que las dibuja debajo.
+function fileButtons(files) {
+  const box = document.createElement('div');
+  box.className = 'hfiles';
+  for (const f of files) {
+    const name = baseName(f);
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'opt'; b.title = f;
+    b.textContent = (/\.html?$/i.test(f) ? '🌐 ' : '🖼️ ') + name;
+    let view = null;
+    b.onclick = async () => {
+      if (view) { view.hidden = !view.hidden; return; }
+      b.disabled = true;
+      const r = await api.historyFile(f).catch(() => ({ ok: false }));
+      b.disabled = false;
+      if (r.ok) view = designView(r.kind, r.kind === 'html' ? r.html : r.src, r.name);
+      else {
+        view = document.createElement('p');
+        view.className = 'muted';
+        view.textContent = r.code === 'missing' ? `«${name}» ya no está en esa carpeta.` : r.code === 'too_big' ? `«${name}» es demasiado grande para verlo aquí.` : `No pude abrir «${name}».`;
+      }
+      box.append(view);
+    };
+    box.append(b);
+  }
+  return box;
 }
 
 async function openResume() {
@@ -1332,6 +1432,7 @@ async function resumeInto(s, c) {
   if (c.last) { const you = document.createElement('div'); you.className = 'cloud you hit'; you.textContent = c.last; s.clouds.append(you); }
   if (data) {
     for (const line of data.lines.slice(0, 2)) { const l = cloud(s); l.textContent = String(line); }
+    showExtras(s, data, []);
     const sheets = buildSheets(data);
     if (sheets.length) showSheetsButton(s, sheets, data.title);
     if (data.choice && data.choice.options && data.choice.options.length) showChoice(s, data.choice);

@@ -15,7 +15,7 @@ const { describeDisplays, pinnedDisplay } = require('./src/displays');
 const { createCommandStore } = require('./src/commands');
 const { findScreenshotDir, isScreenshotName } = require('./src/screenshot-dir');
 const { loginShellPath, mergePath } = require('./src/shell-path');
-const { listConversations, readConversation } = require('./src/history');
+const { listConversations, readConversation, readViewable } = require('./src/history');
 const { readPlan } = require('./src/plans');
 const { createUpdater } = require('./src/updater');
 const { createOpencodeServer, createOpencodeSession } = require('./src/opencode');
@@ -503,6 +503,8 @@ ipcMain.handle('history:conversation', async (_e, { cwd: dir, id, engine }) => {
     return { ok: false, message: e.message, items: [] };
   }
 });
+// Una imagen o página que Claude creó en la conversación, para verla en el historial.
+ipcMain.handle('history:file', (_e, file) => { try { return readViewable(file); } catch (e) { return { ok: false, code: 'failed', message: e.message }; } });
 ipcMain.handle('history:list', async (_e, dir, engine) => {
   const cwd = folderOf(dir);
   if (engine === 'opencode') {

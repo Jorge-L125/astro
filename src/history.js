@@ -53,6 +53,19 @@ function userText(entry) {
   return text.replace(/\n*\(Adjunto una captura de mi pantalla\.\)\s*$/, '');
 }
 
+// Capturas que el usuario adjuntó a una pregunta, como data: URI (las demasiado grandes se omiten).
+const IMG_TYPES = /^image\/(png|jpeg|gif|webp)$/;
+const MAX_IMG = 6 * 1024 * 1024; // caracteres en base64
+function userImages(entry) {
+  const c = entry.message && entry.message.content;
+  if (!Array.isArray(c)) return [];
+  return c.filter(p => p && p.type === 'image' && p.source && p.source.type === 'base64' && IMG_TYPES.test(p.source.media_type) && typeof p.source.data === 'string' && p.source.data.length <= MAX_IMG)
+    .slice(0, 4).map(p => `data:${p.source.media_type};base64,${p.source.data}`);
+}
+
+// Archivos que se pueden ver dentro de Astro: imágenes y páginas (diseños que Claude creó o editó).
+const VIEWABLE = /\.(html?|svg|png|jpe?g|gif|webp)$/i;
+
 /** Resume una conversación guardada: título, última pregunta y última respuesta. */
 function summarize(file) {
   const st = fs.statSync(file);
@@ -157,7 +170,8 @@ function readConversation({ claudeHome, cwd, id }) {
     if (u !== null) {
       if (ASTRO_INTEGRATION.test(u)) continue; // sigue siendo la misma pregunta
       flush();
-      out.push({ role: 'user', text: u, at });
+      const images = userImages(e);
+      out.push(images.length ? { role: 'user', text: u, at, images } : { role: 'user', text: u, at });
       bot = { role: 'bot', data: null, text: '', at: null };
       continue;
     }
@@ -165,6 +179,11 @@ function readConversation({ claudeHome, cwd, id }) {
       for (const p of e.message.content) {
         if (p.type === 'tool_use' && p.name === 'StructuredOutput' && p.input && Array.isArray(p.input.lines)) { bot.data = p.input; bot.at = at; }
         if (p.type === 'text' && p.text && p.text.trim()) { bot.text = p.text.trim(); bot.at = bot.at || at; }
+        const file = p.type === 'tool_use' && /^(Write|Edit|MultiEdit)$/.test(p.name) && p.input && p.input.file_path;
+        if (typeof file === 'string' && VIEWABLE.test(file)) {
+          bot.files = bot.files || [];
+          if (!bot.files.includes(file) && bot.files.length < 8) bot.files.push(file);
+        }
       }
     }
   }
@@ -172,4 +191,19 @@ function readConversation({ claudeHome, cwd, id }) {
   return out;
 }
 
-module.exports = { encodeCwd, projectDirsFor, userText, summarize, listConversations, readConversation };
+// Un archivo de la conversación para verlo en Astro: imágenes y SVG como data: URI, páginas como texto.
+// Solo rutas absolutas con esas extensiones y de un tamaño razonable.
+const MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+const MAX_FILE = 8 * 1024 * 1024;
+function readViewable(file) {
+  if (typeof file !== 'string' || !path.isAbsolute(file) || !VIEWABLE.test(file)) return { ok: false, code: 'not_viewable' };
+  let st;
+  try { st = fs.statSync(file); } catch { return { ok: false, code: 'missing' }; }
+  if (!st.isFile()) return { ok: false, code: 'missing' };
+  if (st.size > MAX_FILE) return { ok: false, code: 'too_big' };
+  const ext = path.extname(file).slice(1).toLowerCase();
+  if (ext === 'html' || ext === 'htm') return { ok: true, kind: 'html', name: path.basename(file), html: fs.readFileSync(file, 'utf8') };
+  return { ok: true, kind: 'image', name: path.basename(file), src: `data:${MIME[ext]};base64,${fs.readFileSync(file).toString('base64')}` };
+}
+
+module.exports = { encodeCwd, projectDirsFor, userText, summarize, listConversations, readConversation, readViewable };

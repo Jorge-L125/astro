@@ -3,7 +3,7 @@
 // lugar de `properties`, uno por tramo de texto o de herramienta) y los permisos (hay que contestarlos
 // en la sesión que preguntó; las reglas no se fijan por sesión, así que Astro aprueba lo ya permitido).
 const map = require('./opencode-map');
-const { describeTool } = require('./claude');
+const { describeTool, writtenFile } = require('./claude');
 
 const fail = (code, message) => Object.assign(new Error(message), { code });
 
@@ -82,7 +82,7 @@ function createOpencodeSessionV2({ server, cwd, model, allowedTools = [], resume
           t.tasks.set(d.id, { description: String(i.description || 'Subagente'), child: null });
           t.onEvent({ type: 'agent-start', key: d.id, name: String(i.description || 'Subagente'), kind: String(i.agent || i.subagent_type || ''), task: String(i.prompt || '') });
         }
-        t.onEvent({ type: 'tool', name: ct.name, label: describeTool(ct.name, ct.input) });
+        t.onEvent({ type: 'tool', name: ct.name, label: describeTool(ct.name, ct.input), ...writtenFile(ct.name, ct.input) });
         return;
       }
       case 'session.tool.progress': {
