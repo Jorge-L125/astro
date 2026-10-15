@@ -98,7 +98,8 @@ Escribe `/` en la pregunta para ver los comandos de Claude Code: los de serie (`
 
 - **`/clear`** lo hace Astro (también el botón ↻): pide confirmación antes de empezar de cero. La conversación no se borra: queda guardada y se puede retomar con `/resume`.
 - **`/resume`** lo hace Astro (también el botón del reloj o «Retomar una conversación…» en la bandeja): lista las conversaciones guardadas de la carpeta de trabajo, de Astro y de la terminal, y retoma la que elijas en la sesión activa, mostrando tu última pregunta y la última respuesta.
-- **`/historial`** lo hace Astro (también el botón de las líneas): abre en el panel lateral todo lo que has hablado en esta sesión, con tus preguntas y las respuestas completas, y una caja para buscar. Lo lee de la conversación que guarda Claude Code, así que también está completo tras retomarla.
+- **`/historial`** lo hace Astro (también el botón de las líneas): abre en el panel lateral todo lo que has hablado en esta sesión, con tus preguntas y las respuestas completas, y una caja para buscar. Cada respuesta trae también su código (con *Copiar*) y las opciones que te ofreció; las capturas que adjuntaste salen en tu mensaje. Lo lee de la conversación que guarda Claude Code, así que también está completo tras retomarla.
+- **Diseños a la vista:** si una respuesta trae HTML o SVG, Astro lo dibuja encima del código (en el historial y en la hoja *Código*); *Ocultar diseño* lo pliega. Si Claude creó o editó una imagen o una página (`.html`, `.svg`, `.png`…), en el historial aparece un botón con su nombre que la dibuja ahí mismo. Las páginas se muestran sin scripts y sin recursos de internet.
 - **Ver el plan.** Si Claude hace un plan, aparece el botón «Ver el plan» y se abre entero en el panel.
 - **Informes** como `/context` o `/usage`: resumen en la nube y el informe completo en las hojas.
 - **`/model sonnet|opus|haiku`** cambia el modelo solo para esa sesión.
@@ -312,6 +313,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/claude-bin.js` — localiza el ejecutable de Claude Code (`.exe`, `.cmd` de npm, Homebrew, `~/.local/bin`…).
 - `src/shell-path.js` — PATH del shell de login en macOS.
 - `src/history.js` — conversaciones guardadas de Claude Code (para `/resume` y `/historial`).
+- `renderer/preview.js` — qué código es un diseño que se puede dibujar (HTML o SVG) y cómo se muestra.
 - `src/plans.js` — lee el plan que Claude escribe en `~/.claude/plans` (solo esa carpeta) para «Ver el plan».
 - `src/displays.js` — qué pantalla usar cuando hay varias.
 - `src/skill-descriptions.js` — descripciones de las skills para el menú de comandos.

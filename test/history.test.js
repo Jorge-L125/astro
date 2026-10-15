@@ -102,3 +102,46 @@ test('leer una conversación no sale de la carpeta del proyecto ni falla si no e
   assert.deepEqual(readConversation({ claudeHome, cwd, id: '../../../etc/passwd' }), []);
   assert.deepEqual(readConversation({ claudeHome, cwd, id: null }), []);
 });
+
+test('la conversación trae las capturas que adjuntaste y los archivos que Claude creó en cada respuesta', () => {
+  const { readConversation } = require('../src/history');
+  const { claudeHome, cwd, dir } = setup();
+  const png = Buffer.from('iVBORw0KGgo=', 'base64').toString('base64');
+  const write = (name, file) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input: { file_path: file, content: '<svg/>' } }] } });
+  fs.writeFileSync(path.join(dir, 'img.jsonl'), jsonl([
+    { type: 'user', message: { role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } },
+      { type: 'text', text: '¿Qué ves aquí?\n\n(Adjunto una captura de mi pantalla.)' },
+    ] } },
+    structured({ mood: 'happy', title: 'Captura', lines: ['Un botón'] }),
+    user('Hazme un logo'),
+    write('Write', '/p/logo.svg'),
+    write('Write', '/p/notas.txt'),
+    write('Edit', '/p/index.html'),
+    write('Write', '/p/logo.svg'),
+    { type: 'assistant', isSidechain: true, message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/p/ayudante.png' } }] } },
+    structured({ mood: 'happy', title: 'Logo', lines: ['Listo'], code: { lang: 'svg', content: '<svg/>' } }),
+  ]));
+  const m = readConversation({ claudeHome, cwd, id: 'img' });
+  assert.equal(m[0].text, '¿Qué ves aquí?');
+  assert.deepEqual(m[0].images, ['data:image/png;base64,' + png]);
+  assert.equal(m[1].files, undefined, 'sin archivos, sin lista');
+  assert.equal(m[2].images, undefined);
+  assert.deepEqual(m[3].files, ['/p/logo.svg', '/p/index.html'], 'solo imágenes y páginas, sin repetir ni los de ayudantes');
+  assert.equal(m[3].data.code.content, '<svg/>');
+});
+
+test('solo deja ver imágenes y páginas, con ruta completa y de un tamaño razonable', () => {
+  const { readViewable } = require('../src/history');
+  const d = tmp();
+  fs.writeFileSync(path.join(d, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  fs.writeFileSync(path.join(d, 'index.html'), '<h1>Hola</h1>');
+  fs.writeFileSync(path.join(d, 'secreto.env'), 'KEY=1');
+  const svg = readViewable(path.join(d, 'logo.svg'));
+  assert.equal(svg.kind, 'image');
+  assert.ok(svg.src.startsWith('data:image/svg+xml;base64,'));
+  assert.deepEqual(readViewable(path.join(d, 'index.html')), { ok: true, kind: 'html', name: 'index.html', html: '<h1>Hola</h1>' });
+  assert.equal(readViewable(path.join(d, 'secreto.env')).code, 'not_viewable');
+  assert.equal(readViewable('logo.svg').code, 'not_viewable', 'ruta relativa');
+  assert.equal(readViewable(path.join(d, 'no.png')).code, 'missing');
+});

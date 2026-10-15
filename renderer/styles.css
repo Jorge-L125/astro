@@ -423,3 +423,20 @@ body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,t
 .ocform .ocmsg:empty{display:none}
 .ocform .ocmsg.err{color:var(--err)}
 .ocform ul{margin:0;padding-left:18px;font-size:13px;line-height:1.5}
+
+/* ---------- historial completo: código, diseños, capturas y opciones ---------- */
+.codebar .acts{display:flex;gap:6px}
+.design{background:repeating-conic-gradient(#f2f2f2 0 25%,#fff 0 50%) 0 0/16px 16px;border-bottom:1px solid var(--hair)}
+.design img{display:block;max-width:100%;max-height:360px;margin:0 auto;object-fit:contain;cursor:zoom-in}
+.design.big img{max-height:none;cursor:zoom-out}
+.design iframe{display:block;width:100%;height:380px;border:0;background:#fff;resize:vertical;overflow:auto}
+.hcode{margin-top:12px;border-radius:12px;overflow:hidden;background:var(--code)}
+.hcode pre{margin:0;border-radius:0;padding:6px 18px 18px;max-height:420px;overflow:auto}
+.hfiles{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.hfiles .opt{font-size:13px;padding:6px 12px}
+.hfiles .design,.hfiles .muted{flex:1 1 100%;border-radius:12px;overflow:hidden}
+.hchoice{margin-top:10px;font-size:13.5px}
+.hchoice p{margin:0 0 4px;font-weight:600}
+.hchoice ul{margin:0;padding-left:18px}
+.hshot{display:block;max-width:100%;max-height:160px;margin-top:8px;border-radius:10px;cursor:zoom-in;background:#fff}
+.hshot.big{max-height:none;cursor:zoom-out}
