@@ -187,6 +187,18 @@ Bueno saber:
 - Los modelos gratuitos pueden tardar y guardar lo que les envías: no los uses con código privado.
 - El formato de respuesta de Astro se pide en las instrucciones (OpenCode 1.19 rompe el historial de una sesión si se le exige un JSON obligatorio; en la 2.x van como instrucciones de la sesión). Si un modelo no lo sigue, la respuesta se muestra como texto.
 
+## Mapa del proyecto (graphify)
+
+Si lo activas en Ajustes → «Mapa del proyecto», Astro usa [graphify](https://pypi.org/project/graphifyy/) para hacer un mapa del código de cada carpeta de trabajo. Claude Code y OpenCode lo consultan (`query`, `explain`, `path`…) antes de abrir archivos sueltos, y así gastan menos tokens al orientarse en un proyecto.
+
+- **Todo en tu equipo.** El mapa se hace con `graphify extract --code-only`: análisis local del código, sin enviar nada y sin claves de API. Se guarda en la carpeta de datos de Astro, nunca dentro de tu proyecto.
+- **Pregunta antes.** La primera vez en cada carpeta, Astro pide permiso («¿Hago el mapa de…?»). Nunca mapea la carpeta de usuario ni una raíz de disco.
+- **Si no tienes graphify**, Astro te lo dice y te deja elegir: **Instalar** (con `uv` o `pipx`, si los tienes; antes te enseña el comando), **Copiar el comando** o **Ahora no**.
+- **Se actualiza solo** en segundo plano al abrir la pregunta en esa carpeta (como mucho cada 10 minutos). Desde Ajustes puedes forzarlo con «Actualizar el mapa ahora».
+- **Permisos:** solo para esas sesiones, Claude y OpenCode pueden ejecutar las consultas de solo lectura del mapa sin preguntarte. No se guardan en `astro.config.json`.
+- **El ahorro es una estimación.** Ajustes muestra «≈N× menos tokens por consulta que leer todo el código»: es la comparación con leer el código entero, que ninguno de los dos hace; el ahorro real es menor.
+- Probado con graphify 0.9; con otra versión, Astro te avisa de que puede fallar. Si lo apagas, todo funciona exactamente como antes.
+
 ## Sesiones
 
 Cada sesión es una conversación independiente con Claude Code: tiene su color, sus nubes, sus ayudantes y su historial. Una sesión puede seguir trabajando mientras está detrás.
@@ -326,6 +338,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/opencode-api.js` — modelos, comandos y conversaciones guardadas, según la versión del servidor.
 - `src/opencode-map.js` — traducciones entre OpenCode y Astro (respuesta, herramientas, permisos, carpetas, historial).
 - `src/opencode-settings.js` + `renderer/opencode-panel.js` — ajustes de OpenCode; la contraseña y la clave van cifradas.
+- `src/graphify-bin.js` + `src/find-bin.js` — dónde está graphify (y cómo instalarlo); `src/graphify-map.js` — un mapa por carpeta, su estado y su construcción en segundo plano; `src/graphify-prompt.js` — las instrucciones y permisos de solo lectura para consultarlo; `renderer/graphify-ui.js` — los textos de Ajustes y los avisos.
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.
 - `src/commands.js` + `renderer/slash.js` — comandos / (qué se muestra, menú y respuestas).
 - `src/captures.js` + `src/screenshot-dir.js` — detección de capturas de pantalla (carpeta del sistema y portapapeles).
