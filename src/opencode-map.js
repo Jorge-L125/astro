@@ -13,6 +13,9 @@ Cuando termines, tu ÚLTIMO mensaje debe ser SOLO un objeto JSON válido (sin te
 {"mood":"neutral|happy|thinking|surprised|worried","title":"título corto","lines":["1 o 2 frases cortas (máx. 140 caracteres) que resumen la idea, sin código"],"detail":"explicación completa en markdown simple o null","code":{"lang":"lenguaje","content":"código completo"} o null,"choice":{"prompt":"pregunta","options":["2 a 5 opciones cortas"],"multi":false} o null}
 Usa "choice" solo si falta un dato que cambia la respuesta. "mood": happy al entregar, thinking al preguntar, worried ante riesgos o errores.`;
 
+/** Instrucciones de sesión: las de Astro y, si se da, un extra (p. ej. el mapa del proyecto) al final. */
+const rulesFor = (cwd, extra) => OPENCODE_RULES(cwd) + (extra ? `\n\n${extra}` : '');
+
 /**
  * La respuesta de Astro dentro del texto del modelo: el último objeto JSON con "lines". Devuelve los
  * datos y el texto que quedó fuera del JSON (por si el modelo explicó algo antes), o null si no hay.
@@ -288,6 +291,6 @@ function commandListV2(list = []) {
 }
 
 module.exports = {
-  OPENCODE_RULES, parseReply, toClaudeTool, permissionRules, permissionRequest, toServerPath, toHostPath, commandList, contextUsage, splitModel, conversationItems, listItem,
+  OPENCODE_RULES, rulesFor, parseReply, toClaudeTool, permissionRules, permissionRequest, toServerPath, toHostPath, commandList, contextUsage, splitModel, conversationItems, listItem,
   permissionRequestV2, allowsRequest, conversationItemsV2, listItemV2, modelsV2, splitModelV2, commandListV2,
 };

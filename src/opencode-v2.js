@@ -17,7 +17,7 @@ function promptOf(content) {
 
 const textOfContent = c => (Array.isArray(c) ? c : []).filter(x => x && x.type === 'text' && x.text).map(x => x.text).join('\n').trim();
 
-function createOpencodeSessionV2({ server, cwd, model, allowedTools = [], resume = null, contextWindow = async () => null }) {
+function createOpencodeSessionV2({ server, cwd, model, allowedTools = [], resume = null, contextWindow = async () => null, rulesExtra = '' }) {
   let sessionId = resume;
   let turn = null;
   let unsub = null;
@@ -33,7 +33,7 @@ function createOpencodeSessionV2({ server, cwd, model, allowedTools = [], resume
       if (!sessionId) throw fail('failed', 'OpenCode no creó la sesión.');
     }
     if (!instructed) {
-      await server.request('PUT', `/api/experimental/session/${sessionId}/instructions/entries/astro`, { dir, body: { value: map.OPENCODE_RULES(cwd) } });
+      await server.request('PUT', `/api/experimental/session/${sessionId}/instructions/entries/astro`, { dir, body: { value: map.rulesFor(cwd, rulesExtra) } });
       instructed = true;
     }
     return sessionId;

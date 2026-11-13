@@ -206,7 +206,7 @@ function partsOf(content) {
  * Una conversación de Astro con OpenCode. Misma interfaz que createClaudeSession:
  * send(text, onEvent) → { done, cancel }, queue(text, id), reply(permissionId, reply), close()…
  */
-function createOpencodeSessionV1({ server, cwd, model, allowedTools = [], resume = null, contextWindow = async () => null }) {
+function createOpencodeSessionV1({ server, cwd, model, allowedTools = [], resume = null, contextWindow = async () => null, rulesExtra = '' }) {
   let sessionId = resume;
   let turn = null;
   let unsub = null;
@@ -358,7 +358,7 @@ function createOpencodeSessionV1({ server, cwd, model, allowedTools = [], resume
           server.request('POST', `/session/${sessionId}/command`, { dir, body: { command: slash[1], arguments: slash[2] || '', ...(m ? { model: model } : {}) } })
             .catch(e => { if (turn === t) { turn = null; t.reject(e); } });
         } else {
-          await server.request('POST', `/session/${sessionId}/prompt_async`, { dir, body: { ...(m ? { model: m } : {}), system: map.OPENCODE_RULES(cwd), parts: partsOf(text) } });
+          await server.request('POST', `/session/${sessionId}/prompt_async`, { dir, body: { ...(m ? { model: m } : {}), system: map.rulesFor(cwd, rulesExtra), parts: partsOf(text) } });
         }
       })().catch(e => { if (turn === t) { turn = null; t.reject(e.code ? e : fail('failed', e.message)); } });
       return {
