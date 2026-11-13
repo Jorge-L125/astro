@@ -22,6 +22,7 @@ const { createOpencodeServer, createOpencodeSession } = require('./src/opencode'
 const { createOpencodeSettings } = require('./src/opencode-settings');
 const ocApi = require('./src/opencode-api');
 const { createGraphMap } = require('./src/graphify-map');
+const { loadGraphFor } = require('./src/graph-data');
 const { resolveGraphify, detectInstallers, installPlan, installGraphify, parseVersion, isTestedVersion } = require('./src/graphify-bin');
 const { resolveOpencode } = require('./src/opencode-bin');
 
@@ -581,7 +582,9 @@ ipcMain.handle('graphify:choose', (_e, { folder, yes }) => {
   if (yes) graphMap.ensure(cwd);
   return graphMap.state(cwd);
 });
-ipcMain.handle('graphify:build', (_e, folder) => graphMap.ensure(folderOf(folder), { force: true }));
+// El grafo ya construido de la carpeta, para el visor (solo lectura; la ruta la decide el mapa, no la ventana).
+ipcMain.handle('graphify:graph', (_e, dir) => loadGraphFor({ graphMap, folder: folderOf(dir) }));
+ipcMain.handle('graphify:build',(_e, folder) => graphMap.ensure(folderOf(folder), { force: true }));
 // Solo con un clic en «Instalar»: ejecuta el comando que se enseñó (uv o pipx) y avisa del progreso.
 ipcMain.handle('graphify:install', async () => {
   const plan = installPlan(detectInstallers());

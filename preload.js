@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('astro', {
   opencodeAvailable: () => ipcRenderer.invoke('opencode:available'),
   graphifyStatus: folder => ipcRenderer.invoke('graphify:status', folder),
   graphifyChoose: (folder, yes) => ipcRenderer.invoke('graphify:choose', { folder, yes }),
+  graphifyGraph: folder => ipcRenderer.invoke('graphify:graph', folder),
   graphifyBuild: folder => ipcRenderer.invoke('graphify:build', folder),
   graphifyInstall: () => ipcRenderer.invoke('graphify:install'),
   graphifyCopy: () => ipcRenderer.invoke('graphify:copy'),
