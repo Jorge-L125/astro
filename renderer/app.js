@@ -7,6 +7,10 @@ import { designKind, svgSrc, htmlDoc, isViewableFile } from './preview.js';
 import { opencodeForm, opencodeEvent } from './opencode-panel.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
+import { suggestRoute } from './router.js';
+import { statusLine, consentText } from './graphify-ui.js';
+import { createGraphView } from './graph-view.js';
+import { graphRequest } from './graph-nav.js';
 import { outfitFor, choose, withMode, loadOutfitPrefs, saveOutfitPrefs, outfitRequest, seasonSuggestion } from './outfits.js';
 
 const api = window.astro;
@@ -170,7 +174,7 @@ function toggleSettings(open = $('settings').hidden) {
   $('settings').hidden = !open;
   body.classList.toggle('settings-open', open);
   $('bSettings').setAttribute('aria-expanded', String(open));
-  if (open) gota.react('curious', 1200);
+  if (open) { gota.react('curious', 1200); refreshGraphify(); }
 }
 $('bSettings').onclick = () => toggleSettings();
 $('bAsk').onclick = () => (askEl ? closeAsk() : openAsk());
@@ -181,7 +185,9 @@ $('bHistory').onclick = () => openHistory();
 $('bMin').onclick = () => gota.minimize();
 $('bQuit').onclick = () => api.quit();
 // Preferencias que guarda el proceso principal (también se cambian desde la bandeja).
+let routeHints = false; // Ajustes → Sugerir motor y modelo
 function showPrefs(p) {
+  routeHints = !!p.routeHints;
   document.querySelectorAll('.toggle[data-pref]').forEach(t => t.setAttribute('aria-checked', String(!!p[t.dataset.pref])));
   if (!p.watchCaptures) dropOffer();
   displayPref = p.display || 'auto';
@@ -312,7 +318,9 @@ function openAsk() {
   const fw = folderButton(active);
   addEngineButton(fw, active);
   askEl.prepend(fw);
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); stickToBottom(active); });
+  const route = routeHint(ta);
+  askEl.append(route.el);
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); route.update(); stickToBottom(active); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
@@ -324,11 +332,14 @@ function openAsk() {
     const cmd = parseSlash(v);
     if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear' || cmd.name === 'historial')) { runLocal(cmd.name); return; }
     if (isCompliment(v)) gota.compliment();
+    // El grafo del proyecto: «ve a…», «camino de A a B»… lo resuelve Astro sin llamar al motor y la pregunta sigue abierta para seguir.
+    if (!attached && !cmd && graphTalk(v)) { ta.value = ''; ta.dispatchEvent(new Event('input')); return; }
     // Con Astro trabajando, el mensaje se le pasa a Claude como en la terminal.
     if (active.busy) { sendWhileBusy(active, v); return; }
     const cap = attached;
     attached = null; // pasa a la pregunta: ya no se descarta al cerrar
-    ask(active, v, cap);
+    // con el visor abierto, lo que Astro no entiende va al motor con el nodo elegido como contexto
+    ask(active, v, cap, { graphCtx: !cmd && graphView.isOpen ? graphView.context() : '' });
   };
   renderAttachment();
   ta.focus();
@@ -1018,7 +1029,7 @@ async function ask(s, text, capture = null, opts = {}) {
   let t = thinkingCloud(s), data, denials = [], plan = null;
   stepsLink(s, t);
   try {
-    let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
+    let r = await call(s, 'ask', { conv: s.id, text: opts.graphCtx ? `${opts.graphCtx}\n\n${text}` : text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
     s.claudeId = r.sessionId || s.claudeId;
     trackContext(s, r, cmd);
     // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
@@ -1235,6 +1246,7 @@ function askConfirm(s, title, text, yesLabel, onYes) {
 
 function resetConversation(s) {
   if (s.busy) return;
+  s.routeOff = false;
   s.claudeId = null; s.history.length = 0;
   s.ctx = null;
   if (s === active) renderContext();
@@ -1468,6 +1480,7 @@ function applyFolder(s, dir) {
   if (s === active) { closeAsk(); closePanel(); }
   clearClouds(s); clearAgents(s);
   renderSessions();
+  if (s === active) reloadGraphIfOpen();
   gota.act('hop');
   const kept = had && prev ? ` La conversación anterior quedó guardada en «${baseName(prev)}».` : '';
   greet(s, `Ahora trabajo en «${baseName(dir)}».${kept} ¿Qué hacemos?`);
@@ -1515,6 +1528,63 @@ function folderButton(s) {
 }
 
 /* ---------- motor: Claude Code u OpenCode ---------- */
+// ¿Hay OpenCode a mano? Se pregunta sin arrancarlo y se recuerda un minuto.
+let ocAvail = { at: 0, ok: false };
+async function opencodeAvailable() {
+  if (Date.now() - ocAvail.at > 60000) {
+    try { ocAvail = { at: Date.now(), ok: !!(await api.opencodeAvailable()).ok }; } catch { ocAvail = { at: Date.now(), ok: false }; }
+  }
+  return ocAvail.ok;
+}
+// Sugerencia bajo el cuadro de la pregunta: «💡 Parece una pregunta corta: ¿la mando a OpenCode · modelo? [Usar]».
+// Solo en el primer mensaje de una conversación nueva, sin bloquear el envío; el clic en «Usar» cambia de motor
+// y conserva lo escrito. Si la persona eligió motor o modelo a mano (s.pinned), no sale nunca.
+function routeHint(ta) {
+  const el = document.createElement('div');
+  el.className = 'route'; el.hidden = true;
+  el.innerHTML = '<span class="txt"></span><button type="button" class="use">Usar</button><button type="button" class="x" aria-label="Descartar la sugerencia" title="No sugerir más en esta conversación">✕</button>';
+  let timer = null, current = null, seq = 0;
+  const hide = () => { el.hidden = true; current = null; };
+  const update = () => {
+    clearTimeout(timer);
+    const s = active;
+    if (!routeHints || s.pinned || s.routeOff || s.history.length || s.claudeId || attached) { seq++; hide(); return; }
+    timer = setTimeout(async () => {
+      const mine = ++seq;
+      const text = ta.value;
+      const ready = s.engine === 'claude' ? await opencodeAvailable() : true;
+      if (mine !== seq || !el.isConnected || s !== active) return;
+      const sug = suggestRoute(text, { engine: s.engine, hasHistory: false, pinned: false, hasCapture: false, opencodeModel: ocPrefs.defaultModel, opencodeReady: ready });
+      if (!sug) { hide(); return; }
+      current = sug;
+      el.querySelector('.txt').textContent = sug.engine === 'opencode'
+        ? `💡 ${sug.reason}: ¿la mando a OpenCode · ${modelName(sug.model)}?`
+        : `💡 ${sug.reason}: ¿paso a Claude Code?`;
+      el.querySelector('.use').hidden = false;
+      el.hidden = false;
+      stickToBottom(s);
+    }, 300);
+  };
+  el.querySelector('.use').onclick = async () => {
+    if (!current) return;
+    const s = active, text = ta.value, sug = current;
+    // la lista de modelos de OpenCode cambia: si el predeterminado ya no está, se avisa en vez de cambiar
+    if (sug.engine === 'opencode') {
+      const r = await api.opencodeModels().catch(() => ({ ok: false, items: [] }));
+      if (!r.ok || !r.items.some(m => m.id === sug.model)) {
+        el.querySelector('.txt').textContent = r.ok ? `⚠ Tu modelo de OpenCode «${modelName(sug.model)}» ya no está disponible: elige otro en el menú del motor.` : '⚠ OpenCode no responde ahora mismo.';
+        el.querySelector('.use').hidden = true; current = null;
+        return;
+      }
+    }
+    applyEngine(s, sug.engine, sug.model);
+    openAsk();
+    const nt = askEl && askEl.querySelector('textarea');
+    if (nt) { nt.value = text; nt.dispatchEvent(new Event('input')); nt.focus(); }
+  };
+  el.querySelector('.x').onclick = () => { active.routeOff = true; seq++; hide(); ta.focus(); };
+  return { el, update };
+}
 // Cada sesión habla con un motor. Cambiar de motor empieza otra conversación; cambiar de modelo dentro
 // de OpenCode sigue la misma.
 const modelName = id => String(id || '').split('/').slice(1).join('/') || String(id || '');
@@ -1543,7 +1613,8 @@ function addEngineButton(wrap, s) {
     wrap.querySelectorAll('.fmenu').forEach(m => { if (m !== list) m.hidden = true; });
     if (!list.hidden) { list.hidden = true; return; }
     list.innerHTML = '';
-    if (s.engine !== 'claude') item('✳ Claude Code', 'Usa Claude Code con tu cuenta de Claude', () => changeEngine(s, 'claude', null));
+    if (routeHints && s.pinned) item('💡 Automático (sugerir)', 'Vuelve a sugerir motor y modelo en las conversaciones nuevas', () => { s.pinned = false; quip('Volveré a sugerir motor y modelo.'); });
+    if (s.engine !== 'claude') item('✳ Claude Code', 'Usa Claude Code con tu cuenta de Claude', () => changeEngine(s, 'claude', null, true));
     const wait = document.createElement('p');
     wait.className = 'muted'; wait.textContent = 'Buscando modelos de OpenCode…';
     list.append(wait);
@@ -1552,17 +1623,19 @@ function addEngineButton(wrap, s) {
     wait.remove();
     if (!r.ok) item('◇ OpenCode no responde: revisar ajustes', r.message || '', openOpencodeSettings);
     for (const m of r.items.filter(m => m.id !== s.model || s.engine !== 'opencode')) {
-      item(`◇ ${m.name} · ${m.provider}${m.free ? ' (gratis)' : ''}`, m.id, () => changeEngine(s, 'opencode', m.id));
+      item(`◇ ${m.name} · ${m.provider}${m.free ? ' (gratis)' : ''}`, m.id, () => changeEngine(s, 'opencode', m.id, true));
     }
     item('Ajustes de OpenCode…', '', openOpencodeSettings);
   };
   wrap.querySelector('.fbtn').after(b);
   wrap.append(list);
 }
-function changeEngine(s, engine, model) {
+// pin: la persona eligió a mano (menú del motor): desde entonces esa sesión va con eso y Astro no sugiere nada.
+function changeEngine(s, engine, model, pin = false) {
   if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
   if (engine === 'opencode' && s.engine === 'opencode') {
-    if (model === s.model) return;
+    if (model === s.model) { if (pin) s.pinned = true; return; }
+    if (pin) s.pinned = true;
     s.model = model;
     if (s === active) { closeAsk(); openAsk(); }
     quip(`Sigo con ${modelName(model)}.`);
@@ -1570,12 +1643,14 @@ function changeEngine(s, engine, model) {
   }
   if (engine === s.engine) return;
   const name = engine === 'opencode' ? 'OpenCode' : 'Claude Code';
-  if (!s.history.length && !s.claudeId) { applyEngine(s, engine, model); return; }
+  if (!s.history.length && !s.claudeId) { applyEngine(s, engine, model, pin); return; }
   askConfirm(s, `¿Paso «${s.name}» a ${name}?`,
     `Empezamos una conversación nueva con ${name}. La actual queda guardada y la puedes retomar con /resume desde ${s.engine === 'opencode' ? 'OpenCode' : 'Claude Code'}.`,
-    'Sí, cambiar', () => applyEngine(s, engine, model));
+    'Sí, cambiar', () => applyEngine(s, engine, model, pin));
 }
-function applyEngine(s, engine, model) {
+function applyEngine(s, engine, model, pin = false) {
+  if (pin) s.pinned = true;
+  s.routeOff = false;
   s.engine = engine;
   s.model = engine === 'opencode' ? model || ocPrefs.defaultModel : null;
   s.claudeId = null; s.history.length = 0;
@@ -1708,6 +1783,7 @@ function onSwitched(id) {
   gota.setMood(s.mood);
   gota.setBusy?.(s.busy);
   renderSessions();
+  reloadGraphIfOpen();
   if (s.pending) {
     gota.react(s.pending === 'error' ? 'worried' : 'happy', 1400);
     s.pending = null;
@@ -1736,6 +1812,7 @@ addEventListener('keydown', e => {
     else if (!$('settings').hidden) toggleSettings(false);
     return;
   }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === 'KeyG') { e.preventDefault(); toggleGraph(); return; }
   if (!e.altKey || e.ctrlKey) return;
   const m = /^Digit([1-6])$/.exec(e.code);
   if (m) {
@@ -1801,6 +1878,140 @@ api.on('astro:update', u => {
   c.querySelector('.drop').onclick = () => { c.remove(); updateCloud = null; quip('Vale: se instalará cuando cierres Astro.'); };
   gota.wake(); gota.react('surprised', 900); gota.act('hop');
 });
+/* ---------- mapa del proyecto (graphify) ---------- */
+const folderName = f => String(f || '').split(/[\\/]/).filter(Boolean).pop() || 'esta carpeta';
+async function refreshGraphify() {
+  let info;
+  try { info = await api.graphifyStatus(active.folder); } catch { return null; }
+  $('graphifyStatus').textContent = statusLine(info);
+  $('bGraphifyUpdate').hidden = !['ready', 'idle', 'failed'].includes(info.state.status);
+  return info;
+}
+$('bGraphifyUpdate').onclick = async () => {
+  $('bGraphifyUpdate').hidden = true;
+  await api.graphifyBuild(active.folder);
+  refreshGraphify();
+};
+// Pide permiso (una vez) para hacer el mapa de una carpeta; no bloquea nada: se puede ignorar.
+const gfAsking = new Set();
+function consentCloud(folder) {
+  if (gfAsking.has(folder)) return;
+  gfAsking.add(folder);
+  const c = cloud(active, 'capture');
+  c.innerHTML = '<p></p><div class="row"><button class="btn use">Sí, hazlo</button><button class="opt drop">No aquí</button></div>';
+  c.querySelector('p').textContent = consentText(folderName(folder));
+  c.querySelector('.use').onclick = () => { c.remove(); api.graphifyChoose(folder, true); quip('Vale, hago el mapa.'); };
+  c.querySelector('.drop').onclick = () => { c.remove(); api.graphifyChoose(folder, false); quip('Entendido: sin mapa aquí.'); };
+  gota.wake(); gota.react('curious', 900);
+}
+// graphify no está: se enseña el comando y se ofrece instalarlo (solo con un clic) o copiarlo.
+function installCloud(inst) {
+  const c = cloud(active, 'capture');
+  const p = document.createElement('p');
+  p.textContent = 'Para el mapa necesito graphify y no lo encuentro. Se instala con:';
+  const code = document.createElement('code');
+  code.textContent = inst.text;
+  const row = document.createElement('div');
+  row.className = 'row';
+  const add = (cls, label, fn) => { const b = document.createElement('button'); b.className = cls; b.textContent = label; b.onclick = fn; row.append(b); return b; };
+  if (inst.canRun) {
+    add('btn use', 'Instalar', async function () {
+      this.disabled = true; p.textContent = 'Instalando graphify… puede tardar un minuto.'; code.hidden = true;
+      const r = await api.graphifyInstall();
+      if (r.ok) { c.remove(); quip('graphify instalado.'); const info = await refreshGraphify(); if (info && info.state.status === 'unasked') consentCloud(active.folder || ''); }
+      else { p.textContent = 'No pude instalarlo. Puedes copiar el comando y ejecutarlo tú.'; code.hidden = false; this.disabled = false; }
+    });
+  }
+  add('opt', 'Copiar el comando', async () => { await api.graphifyCopy(); quip('Comando copiado.'); });
+  add('opt drop', 'Ahora no', () => c.remove());
+  c.append(p, code, row);
+  gota.wake(); gota.react('curious', 900);
+}
+// Al encender el interruptor sin graphify instalado, se ofrece instalarlo (el valor ya se envió: los mensajes van en orden).
+$('tGraphify').addEventListener('click', async () => {
+  if ($('tGraphify').getAttribute('aria-checked') !== 'true') { refreshGraphify(); return; }
+  const info = await refreshGraphify();
+  if (info && info.state.status === 'missing' && info.install) installCloud(info.install);
+});
+const gfFirstBuild = new Set();
+api.on('astro:graphify', e => {
+  if (e.type === 'install' || !e.state) return;
+  if (e.ask) consentCloud(e.folder);
+  if (e.state.status === 'building' && !e.state.at) gfFirstBuild.add(e.folder);
+  if (e.state.status === 'ready' && gfFirstBuild.delete(e.folder)) quip(`Mapa de «${folderName(e.folder)}» listo: ${e.state.nodes} piezas`);
+  if (!$('settings').hidden) refreshGraphify();
+  // visor del grafo: si estaba esperando el mapa, ya se puede abrir; si ya lo enseña y hay uno más nuevo, se avisa
+  if (graphView.isOpen && e.state.status === 'ready') {
+    if (!graphView.hasGraph) openGraph(null, { quiet: true });
+    else if (e.folder === graphView.folder && e.state.at > graphView.at) graphView.markStale();
+  }
+});
+
+/* ---------- visor del grafo ---------- */
+const graphView = createGraphView({
+  root: $('graphView'), gota, reduce, say: text => graphSay(text),
+  onClose: () => setGraphBtn(false),
+  onReload: () => openGraph(null, { quiet: true }),
+  // Esc cierra el visor solo si no hay otra cosa abierta que Esc ya cierre
+  escapeFree: () => !askEl && !body.classList.contains('panel-open') && $('settings').hidden,
+  side: () => (body.classList.contains('left-side') ? -1 : 1),
+});
+function setGraphBtn(on) { $('bGraph').classList.toggle('on', on); $('bGraph').setAttribute('aria-pressed', String(on)); }
+// Lo que Astro responde del grafo va en una sola nube que se sustituye en cada respuesta.
+let graphCloud = null;
+function graphSay(text) {
+  if (!text) return;
+  if (graphCloud) graphCloud.remove();
+  const c = graphCloud = cloud(active, 'quip graph');
+  c.textContent = text;
+  gota.talk(text.length);
+  setTimeout(() => { if (graphCloud === c) graphCloud = null; c.remove(); }, 12000);
+}
+// Con el visor cerrado entiende «muéstrame el grafo [de X]»; con él abierto, las órdenes de navegación. true = ya está resuelto.
+function graphTalk(text) {
+  if (graphView.isOpen) { const r = graphView.reply(text); if (r) { graphSay(r); return true; } return false; }
+  const q = graphRequest(text);
+  if (!q) return false;
+  if (q.close) graphSay('El grafo ya está cerrado.'); else openGraph(q.target);
+  return true;
+}
+// El mapa no está listo: se explica por qué y se ofrece lo que corresponda.
+function graphStatusButtons(state, folder) {
+  const again = () => openGraph(null, { quiet: true });
+  switch (state.status) {
+    case 'off': return [{ label: 'Activar el mapa', onClick: async () => { await api.setPref('graphifyMap', true); again(); } }];
+    case 'missing': return [{ label: 'Cómo instalarlo', onClick: async () => { const info = await api.graphifyStatus(folder); if (info && info.install) installCloud(info.install); } }];
+    case 'unasked': case 'declined': return [{ label: 'Hacer el mapa', onClick: async () => { await api.graphifyChoose(folder, true); again(); } }];
+    case 'idle': case 'failed': return [{ label: state.status === 'failed' ? 'Reintentar' : 'Hacer el mapa', onClick: async () => { await api.graphifyBuild(folder); again(); } }];
+    default: return [];
+  }
+}
+let graphOpening = false;
+async function openGraph(target, { quiet = false } = {}) {
+  if (graphOpening) return;
+  if (gota.isMinimized()) { restoreThen(() => openGraph(target, { quiet })); return; }
+  graphOpening = true;
+  try {
+    gota.wake();
+    const folder = active.folder;
+    let r;
+    try { r = await api.graphifyGraph(folder); } catch { r = { ok: false, state: { status: 'failed', error: 'no pude leer el mapa' } }; }
+    let loaded = false;
+    if (r.ok) { try { graphView.load(r); loaded = true; } catch { graphView.showStatus('El mapa de esta carpeta no tiene nodos todavía.', graphStatusButtons({ status: 'idle' }, folder)); } }
+    else graphView.showStatus(statusLine({ state: r.state }), graphStatusButtons(r.state, folder));
+    graphView.open(); setGraphBtn(true);
+    if (!quiet) { gota.react('joy', 1200); gota.act('hop'); }
+    if (loaded && !quiet) {
+      const said = target ? graphView.goTo(target) : null;
+      graphSay(said || (target ? `No encuentro «${target}» en el grafo.` : 'Este es el mapa. Pídeme «ve a …», «recorrido» o «camino de A a B».'));
+    }
+  } finally { graphOpening = false; }
+}
+function toggleGraph() { if (graphView.isOpen) { graphView.close(); setGraphBtn(false); } else openGraph(); }
+$('bGraph').onclick = toggleGraph;
+// Con otra carpeta o sesión al frente, el visor enseña el grafo de esa carpeta
+const reloadGraphIfOpen = () => { if (graphView.isOpen) openGraph(null, { quiet: true }); };
+
 api.on('astro:new', () => newSession());
 api.on('astro:reset', () => confirmReset(active));
 api.on('astro:resume', () => (gota.isMinimized() ? restoreThen(openResume) : openResume()));

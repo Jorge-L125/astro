@@ -6,6 +6,8 @@ const path = require('path');
 const { createCaptureStore, toImageBlock, fingerprint, MAX_EDGE } = require('../src/captures');
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
+// Espera a que pase algo en vez de un tiempo fijo: en macOS el vigilante de carpetas tarda más y la espera fija fallaba.
+const until = async (fn, ms = 8000) => { const t0 = Date.now(); while (!fn() && Date.now() - t0 < ms) await delay(25); };
 
 // NativeImage de mentira: los píxeles salen de la etiqueta; `alpha` cambia solo el canal alfa.
 function fakeImage(label, width = 1920, height = 1080, { pngBytes = 1000, alpha = 255 } = {}) {
@@ -125,7 +127,8 @@ test('solo acepta los archivos que el filtro de nombres reconoce', async t => {
   h.store.setFolder(dir);
   fs.writeFileSync(path.join(dir, 'logo.png'), 'png');
   fs.writeFileSync(path.join(dir, 'Captura 1.png'), 'png');
-  await delay(900);
+  await until(() => h.seen.length >= 1);
+  await delay(300); // margen para comprobar que el archivo que no es una captura no llega después
   assert.deepEqual(h.seen.map(s => s.thumb), ['data:image/png;base64,Captura 1.png-360']);
 });
 
@@ -137,7 +140,7 @@ test('vigila la carpeta de capturas y deduplica con el portapapeles', async t =>
   h.store.setFolder(dir);
   fs.writeFileSync(path.join(dir, 'notas.txt'), 'x');
   fs.writeFileSync(path.join(dir, 'Screenshot 1.png'), 'png');
-  await delay(900);
+  await until(() => h.seen.length >= 1);
   assert.equal(h.seen.length, 1, 'el .png sí, el .txt no');
   // La misma captura copiada al portapapeles un instante después:
   h.copy(fakeImage('Screenshot 1.png'));

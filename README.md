@@ -160,6 +160,8 @@ Como en la terminal de Claude Code, puedes escribirle a Astro aunque esté traba
 
 Además de Claude Code, cada sesión puede trabajar con [OpenCode](https://opencode.ai) (probado con las versiones **1.19** y **2.0**: Astro detecta cuál tienes y usa su API). El motor se elige junto a la carpeta, en la nube de pregunta (`✳ Claude Code ▾`): ahí aparecen los modelos de OpenCode conectados. Cambiar de motor empieza otra conversación; cambiar de modelo dentro de OpenCode sigue la misma. En *Ajustes › Motor de las sesiones nuevas* eliges con cuál empiezan las sesiones.
 
+**Sugerencias de motor y modelo.** Con *Ajustes › Sugerir motor y modelo* encendido (viene apagado), al escribir el primer mensaje de una conversación nueva aparece bajo el cuadro un aviso: «💡 Parece una pregunta corta: ¿la mando a OpenCode · *tu modelo*?» o, estando en OpenCode, «Parece trabajo pesado: ¿paso a Claude Code?». Con **Usar** cambia de motor y conserva lo que escribiste; si lo ignoras y envías, todo sigue por el motor que tenías. Las reglas miran el texto (sin llamar a ningún modelo): pedir cambios sobre código o archivos, planes, textos largos o con código van a Claude; preguntas cortas de explicar, resumir o traducir van a OpenCode. Solo sugiere el **modelo predeterminado de OpenCode** de *Ajustes de OpenCode…*, y si ya no está disponible lo dice en vez de cambiar. No sugiere en conversaciones ya empezadas, con comandos `/` ni con una captura adjunta. Si eliges tú el motor o el modelo en el menú de junto a la carpeta, esa sesión se queda con tu elección y no vuelve a sugerir hasta que elijas **💡 Automático** en ese mismo menú. La ✕ del aviso lo calla en esa conversación.
+
 Funciona igual que con Claude: subagentes, pasos, `/resume`, `/historial`, comandos `/` del servidor y escribir mientras trabaja. Los permisos se piden **en el momento**: *Permitir* (esta vez), *Siempre* (en esta conversación) o *No*. Lo que tengas en *Puede usar sin preguntar* vale también para OpenCode.
 
 **Dónde corre.** Con OpenCode instalado en tu equipo no hay que configurar nada: Astro lo arranca cuando lo necesitas (con una contraseña de un solo uso, solo accesible desde tu equipo) y lo apaga al cerrarse. Astro lo busca en el PATH, en el PATH actual del registro de Windows y en las carpetas habituales (`~/.opencode/bin`, npm, Scoop…), así que lo encuentra aunque lo hayas instalado después de abrir sesión. Si no está instalado, Astro te lo dice al usarlo.
@@ -184,6 +186,28 @@ Bueno saber:
 - OpenCode no puede usar tu suscripción de Claude (Pro o Max); para eso sigue usando Claude Code.
 - Los modelos gratuitos pueden tardar y guardar lo que les envías: no los uses con código privado.
 - El formato de respuesta de Astro se pide en las instrucciones (OpenCode 1.19 rompe el historial de una sesión si se le exige un JSON obligatorio; en la 2.x van como instrucciones de la sesión). Si un modelo no lo sigue, la respuesta se muestra como texto.
+
+## Mapa del proyecto (graphify)
+
+Si lo activas en Ajustes → «Mapa del proyecto», Astro usa [graphify](https://pypi.org/project/graphifyy/) para hacer un mapa del código de cada carpeta de trabajo. Claude Code y OpenCode lo consultan (`query`, `explain`, `path`…) antes de abrir archivos sueltos, y así gastan menos tokens al orientarse en un proyecto.
+
+- **Todo en tu equipo.** El mapa se hace con `graphify extract --code-only`: análisis local del código, sin enviar nada y sin claves de API. Se guarda en la carpeta de datos de Astro, nunca dentro de tu proyecto.
+- **Pregunta antes.** La primera vez en cada carpeta, Astro pide permiso («¿Hago el mapa de…?»). Nunca mapea la carpeta de usuario ni una raíz de disco.
+- **Si no tienes graphify**, Astro te lo dice y te deja elegir: **Instalar** (con `uv` o `pipx`, si los tienes; antes te enseña el comando), **Copiar el comando** o **Ahora no**.
+- **Se actualiza solo** en segundo plano al abrir la pregunta en esa carpeta (como mucho cada 10 minutos). Desde Ajustes puedes forzarlo con «Actualizar el mapa ahora».
+- **Permisos:** solo para esas sesiones, Claude y OpenCode pueden ejecutar las consultas de solo lectura del mapa sin preguntarte. No se guardan en `astro.config.json`.
+- **El ahorro es una estimación.** Ajustes muestra «≈N× menos tokens por consulta que leer todo el código»: es la comparación con leer el código entero, que ninguno de los dos hace; el ahorro real es menor.
+- Probado con graphify 0.9; con otra versión, Astro te avisa de que puede fallar. Si lo apagas, todo funciona exactamente como antes.
+
+### Visor del grafo
+
+Con el mapa listo, el botón de la barra (o `Ctrl+G`, o decir «muéstrame el grafo») abre el grafo del proyecto en una capa a pantalla completa: comunidades de colores, tarjeta con las conexiones del nodo elegido y la gota mirando hacia él. Se maneja con el ratón (arrastrar, rueda, clic, doble clic), con el teclado (← → Enter Retroceso `/` `f` Esc) y hablando con Astro:
+
+- **Lo entiende Astro solo, sin gastar tokens:** «ve a …», «camino de A a B», «recorrido», «siguiente» / «anterior» / «entra» / «atrás», «más conectado», «comunidad», «vecinos», «vista general», «cierra el grafo». Solo en frases cortas.
+- **Todo lo demás va a Claude Code u OpenCode** (el de la sesión), con el nodo elegido y sus vecinos como contexto. Eso sí gasta tokens, como cualquier pregunta.
+- **Grafos grandes:** si tienen más de 1500 nodos se enseñan los 1500 más conectados («mostrando 1500 de N»); buscar un nodo oculto o elegir una comunidad en la leyenda lo trae.
+- Si el mapa no está listo, el visor dice por qué y ofrece lo que corresponde (activarlo, darle permiso, hacerlo o ver cómo instalar graphify). Si el mapa se actualiza con el visor abierto, avisa con «Mapa actualizado · recargar».
+- Es de solo lectura: no escribe nada en tu proyecto. Con «reducir movimiento» del sistema, sin animaciones de flujo.
 
 ## Sesiones
 
@@ -226,6 +250,7 @@ Botón de ajustes (el de los controles deslizantes) de la barra que aparece al p
 - **Cajas:** *Glass* (por defecto) hace translúcidas las nubes, Ajustes, la barra de botones y el panel lateral, con reflejos en el borde; *Glass de color* además tiñe Ajustes, la barra y el panel con el color de Astro; *Sólido* lo deja todo opaco. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás: los paneles son algo más opacos para que no se mezclen con las nubes.
 - **Siempre encima de las ventanas:** por defecto Astro flota sobre todo. Si lo apagas, queda detrás de las ventanas que uses y vuelve al frente al llamarlo o al detectar una captura.
 - **Detectar capturas de pantalla.**
+- **Sugerir motor y modelo** (apagado por defecto): ver [OpenCode](#opencode).
 - **Pantalla** (solo si tienes más de una): *Auto* aparece en la pantalla donde esté el cursor; un número la fija siempre en esa pantalla (numeradas de izquierda a derecha; pasa el ratón por encima para ver su nombre y resolución). Si desconectas la pantalla elegida, Astro sigue al cursor hasta que vuelva. También está en la bandeja → *Pantalla*.
 
 Las dos últimas también están en el menú de la bandeja, y todos los ajustes se recuerdan entre arranques.
@@ -323,6 +348,8 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/opencode-api.js` — modelos, comandos y conversaciones guardadas, según la versión del servidor.
 - `src/opencode-map.js` — traducciones entre OpenCode y Astro (respuesta, herramientas, permisos, carpetas, historial).
 - `src/opencode-settings.js` + `renderer/opencode-panel.js` — ajustes de OpenCode; la contraseña y la clave van cifradas.
+- `src/graphify-bin.js` + `src/find-bin.js` — dónde está graphify (y cómo instalarlo); `src/graphify-map.js` — un mapa por carpeta, su estado y su construcción en segundo plano; `src/graphify-prompt.js` — las instrucciones y permisos de solo lectura para consultarlo; `renderer/graphify-ui.js` — los textos de Ajustes y los avisos.
+- `src/graph-data.js` — el grafo del mapa de una carpeta, de solo lectura, para el visor. `renderer/graph-model.js` (nodos, comunidades, búsqueda, caminos, tope de 1500), `renderer/graph-nav.js` (navegación, frases que Astro entiende solo y el contexto que va al motor), `renderer/graph-sim.js` (fuerzas y cámara) y `renderer/graph-view.js` (canvas, tarjeta y leyenda).
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.
 - `src/commands.js` + `renderer/slash.js` — comandos / (qué se muestra, menú y respuestas).
 - `src/captures.js` + `src/screenshot-dir.js` — detección de capturas de pantalla (carpeta del sistema y portapapeles).
@@ -332,6 +359,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/icon.js` — icono de la bandeja, generado sin archivos.
 - `renderer/gota.js` — el personaje 3D.
 - `renderer/accessories.js` — los diseños (sombreros, animales, disfraces) con sus gestos y sus ayudantes; `renderer/outfits.js` recuerda cuál lleva cada proyecto y entiende «ponte el sombrero de pirata».
+- `renderer/router.js` — reglas que sugieren Claude Code u OpenCode según lo que escribes.
 - `renderer/fx.js` — partículas cortas (confeti, chispas, humo, equis de error).
 - `renderer/tools.js` — cuenta en palabras qué herramienta quiere usar Claude, para los avisos de permiso.
 - `renderer/usage.js` — uso del contexto y respuestas a «¿cuántos tokens quedan?».

@@ -354,4 +354,4 @@ function createPool(factory) {
   };
 }
 
-module.exports = { createClaudeSession, createPool, describeTool, writtenFile, buildArgs, lineSplitter, contextUsage };
+module.exports = { createClaudeSession, createPool, describeTool, writtenFile, buildArgs, lineSplitter, contextUsage, killTree };

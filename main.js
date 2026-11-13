@@ -21,6 +21,10 @@ const { createUpdater } = require('./src/updater');
 const { createOpencodeServer, createOpencodeSession } = require('./src/opencode');
 const { createOpencodeSettings } = require('./src/opencode-settings');
 const ocApi = require('./src/opencode-api');
+const { createGraphMap } = require('./src/graphify-map');
+const { loadGraphFor } = require('./src/graph-data');
+const { resolveGraphify, detectInstallers, installPlan, installGraphify, parseVersion, isTestedVersion } = require('./src/graphify-bin');
+const { resolveOpencode } = require('./src/opencode-bin');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
 // avisa a la primera, que se muestra con la pregunta abierta ('second-instance'), y termina antes
@@ -92,6 +96,16 @@ let updates = null; // actualizaciones automáticas (src/updater.js)
 const running = new Map(); // id de petición -> función para cancelarla
 const conversations = new Map(); // id de sesión de la interfaz -> proceso de Claude Code que la atiende
 const prefs = createPrefs(app.getPath('userData'));
+// Mapa del proyecto (graphify): un mapa por carpeta en la carpeta de datos de Astro (ver src/graphify-map.js).
+const graphMap = createGraphMap({
+  dir: path.join(app.getPath('userData'), 'graphs'),
+  enabled: () => prefs.get().graphifyMap,
+  onChange: (folder, state) => {
+    send('astro:graphify', { folder, state });
+    // los procesos de reserva de la carpeta de siempre se crearon sin el mapa: se renuevan cuando está listo
+    if (state.status === 'ready' && isDefault(folder)) askPool.closeAll();
+  },
+});
 const commands = createCommandStore(app.getPath('userData'), { home: os.homedir(), cwd: config.workingDirectory });
 
 /* ---------- OpenCode (segundo motor) ---------- */
@@ -190,7 +204,7 @@ function saveAllowedTools(list) {
   try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(file, null, 2) + '\n'); } catch (e) { console.error('[astro] No pude guardar allowedTools:', e.message); }
   // Los procesos de reserva se descartan y los de cada conversación se relanzan con las nuevas.
   askPool.closeAll(); agentPool.closeAll();
-  for (const s of conversations.values()) s.setTools(config.allowedTools);
+  for (const s of conversations.values()) s.setTools(toolsFor(s.folder));
   return config.allowedTools;
 }
 ipcMain.handle('tools:grant', (_e, names) => {
@@ -223,7 +237,13 @@ const baseOpts = (cwd = config.workingDirectory) => ({
   permissionMode: config.permissionMode,
   idleMs: config.idleMinutes * 60 * 1000,
 });
-const askOpts = (cwd = config.workingDirectory) => ({ ...baseOpts(cwd), systemPrompt: ASTRO_RULES(cwd), schema: ASTRO_SCHEMA });
+// Con el mapa del proyecto listo, las sesiones de esa carpeta reciben sus instrucciones y los permisos de solo lectura
+// para consultarlo (solo en la sesión: no se guardan en la configuración). Sin mapa, todo queda como siempre.
+const toolsFor = cwd => { const x = graphMap.extras(cwd); return x ? [...config.allowedTools, ...x.tools] : config.allowedTools; };
+const askOpts = (cwd = config.workingDirectory) => {
+  const x = graphMap.extras(cwd);
+  return { ...baseOpts(cwd), allowedTools: toolsFor(cwd), systemPrompt: ASTRO_RULES(cwd, x && x.rules), schema: ASTRO_SCHEMA };
+};
 // Cada proceso de Claude Code ocupa ~400 MB, así que no se deja ninguno esperando "por si acaso":
 // se arranca cuando el usuario abre la pregunta (mientras escribe le da tiempo a arrancar) y, si al
 // final no se usa, se cierra a los pocos minutos.
@@ -246,7 +266,8 @@ function freshSession(cwd, extra = {}) {
 // Una conversación con OpenCode: el servidor es único y cada conversación es una sesión suya.
 function ocSession(cwd, model, resume = null) {
   ocReady().catch(() => {});
-  const s = createOpencodeSession({ server: ocServer, cwd, model: model || ocSettings.get().defaultModel, allowedTools: config.allowedTools, resume, contextWindow: ocContext });
+  const x = graphMap.extras(cwd);
+  const s = createOpencodeSession({ server: ocServer, cwd, model: model || ocSettings.get().defaultModel, allowedTools: toolsFor(cwd), resume, contextWindow: ocContext, ...(x ? { rulesExtra: x.rules } : {}) });
   s.folder = cwd;
   return s;
 }
@@ -268,7 +289,19 @@ function conversationFor(conv, resume, cwd = config.workingDirectory, engine = '
 
 // La interfaz avisa al abrir la pregunta: si la sesión ya tiene conversación, se despierta su proceso
 // (con --resume si se cerró por inactividad); si es nueva, se deja uno listo para su carpeta.
+// Al abrir la pregunta en una carpeta: si hay que pedir permiso para su mapa, se avisa a la interfaz (una vez por
+// arranque y carpeta); si ya se puede, se construye o actualiza en segundo plano sin bloquear nada.
+const mapAsked = new Set();
+function mapWarm(cwd) {
+  const st = graphMap.state(cwd);
+  if (st.status === 'unasked') {
+    if (!mapAsked.has(cwd)) { mapAsked.add(cwd); send('astro:graphify', { folder: cwd, state: st, ask: true }); }
+    return;
+  }
+  graphMap.ensure(cwd);
+}
 function warmFor(conv, cwd = config.workingDirectory, engine = 'claude') {
+  if (prefs.get().graphifyMap) mapWarm(cwd);
   if (engine === 'opencode') { ocReady().catch(() => {}); return; }
   if (!config.warmPool) return;
   const s = conversations.get(conv);
@@ -521,6 +554,48 @@ ipcMain.handle('history:list', async (_e, dir, engine) => {
 });
 
 /* ---------- OpenCode: ajustes, modelos, comandos, permisos ---------- */
+/* ---------- Graphify: el mapa del proyecto ---------- */
+// La versión se pregunta una vez por ejecutable y se recuerda.
+const gfVersions = new Map();
+function graphifyVersion(bin) {
+  if (!bin.found) return Promise.resolve(null);
+  if (!gfVersions.has(bin.command)) {
+    gfVersions.set(bin.command, new Promise(resolve => {
+      require('child_process').execFile(bin.command, ['--version'], { timeout: 5000, windowsHide: true }, (err, out) => resolve(err ? null : parseVersion(out)));
+    }));
+  }
+  return gfVersions.get(bin.command);
+}
+ipcMain.handle('graphify:status', async (_e, dir) => {
+  const bin = resolveGraphify();
+  const version = await graphifyVersion(bin);
+  const plan = installPlan(detectInstallers());
+  return {
+    state: graphMap.state(folderOf(dir)),
+    bin: { found: bin.found, version, tested: version ? isTestedVersion(version) : true },
+    install: bin.found ? null : { kind: plan.kind, text: plan.text, canRun: plan.canRun },
+  };
+});
+ipcMain.handle('graphify:choose', (_e, { folder, yes }) => {
+  const cwd = folderOf(folder);
+  graphMap.choose(cwd, !!yes);
+  if (yes) graphMap.ensure(cwd);
+  return graphMap.state(cwd);
+});
+// El grafo ya construido de la carpeta, para el visor (solo lectura; la ruta la decide el mapa, no la ventana).
+ipcMain.handle('graphify:graph', (_e, dir) => loadGraphFor({ graphMap, folder: folderOf(dir) }));
+ipcMain.handle('graphify:build',(_e, folder) => graphMap.ensure(folderOf(folder), { force: true }));
+// Solo con un clic en «Instalar»: ejecuta el comando que se enseñó (uv o pipx) y avisa del progreso.
+ipcMain.handle('graphify:install', async () => {
+  const plan = installPlan(detectInstallers());
+  send('astro:graphify', { type: 'install', phase: 'start', text: plan.text });
+  let r;
+  try { r = await installGraphify({ plan }); } catch (e) { r = { ok: false, code: null, tail: e.message }; }
+  send('astro:graphify', { type: 'install', phase: 'done', ok: r.ok, tail: r.tail });
+  return r;
+});
+ipcMain.handle('graphify:copy', () => { const text = installPlan(detectInstallers()).text; clipboard.writeText(text); return text; });
+
 ipcMain.handle('opencode:settings', () => ocSettings.public());
 ipcMain.handle('opencode:save', (_e, input) => {
   const before = JSON.stringify([ocSettings.server(), ocSettings.openai()]);
@@ -533,6 +608,12 @@ ipcMain.handle('opencode:status', async () => {
     const info = await ocReady();
     return { ok: true, version: info.version, api: info.api, supported: info.supported, mode: ocSettings.get().mode };
   } catch (e) { return { ok: false, code: e.code || 'failed', message: e.message }; }
+});
+// ¿Hay OpenCode a mano? Sin arrancarlo: en este equipo, se busca el ejecutable; con otro servidor, basta la dirección.
+ipcMain.handle('opencode:available', () => {
+  const cfg = ocSettings.server();
+  if (cfg.mode === 'remote') return { ok: !!cfg.url };
+  return { ok: resolveOpencode(cfg.bin).found };
 });
 ipcMain.handle('opencode:models', async () => {
   try { return { ok: true, items: await ocModels() }; } catch (e) { return { ok: false, message: e.message, items: [] }; }
@@ -628,6 +709,7 @@ app.on('will-quit', () => {
   for (const cancel of running.values()) cancel();
   for (const s of conversations.values()) s.close();
   ocServer.close();
+  graphMap.close();
   captures.stop();
   askPool.closeAll();
   agentPool.closeAll();

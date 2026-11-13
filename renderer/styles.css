@@ -118,6 +118,12 @@ body.left-side .cloud.tail::after{right:auto;left:6px}
 .ask{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;padding:10px 10px 10px 18px;width:380px;max-width:100%}
 .ask textarea{flex:1 1 160px;min-width:0;border:0;background:transparent;resize:none;font:inherit;font-size:15px;color:var(--ink);outline:none;max-height:160px;padding:6px 0;overflow-y:auto}
 .ask textarea::placeholder{color:var(--muted)}
+/* sugerencia de motor y modelo bajo la pregunta */
+.ask .route{flex:1 0 100%;display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:12px;font-size:12.5px;line-height:1.35;color:var(--ink);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.ask .route[hidden]{display:none}
+.ask .route .txt{flex:1;min-width:0}
+.ask .route .use{flex:none;border:0;background:var(--accent);color:var(--on-accent);border-radius:999px;padding:3px 12px;font-weight:700;font-size:12.5px;cursor:pointer}
+.ask .route .x{flex:none;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 4px}
 
 /* carpeta de trabajo de la sesión, arriba de la pregunta */
 .ask .folder{position:relative;flex:1 0 100%;margin:0 0 -2px -8px}
@@ -408,6 +414,7 @@ body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,t
 .fmenu .muted{margin:4px 9px;font-size:12.5px;color:var(--muted)}
 .more{border:0;background:transparent;color:var(--accent);font-size:12.5px;font-weight:600;padding:6px 0 0;cursor:pointer}
 .more:hover{text-decoration:underline}
+.cloud code{display:block;margin:6px 0;padding:6px 8px;border-radius:8px;font-size:12px;word-break:break-all;background:color-mix(in srgb,var(--ink) 8%,transparent)}
 .cloud.perm.live .row{flex-wrap:wrap}
 .ocform [hidden]{display:none!important}
 .ocform label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-top:12px}
@@ -450,3 +457,67 @@ body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,t
 .cloud.filescloud .hfiles{margin-top:8px}
 .cloud.filescloud .design iframe{height:300px}
 .cloud.codecloud pre{background:var(--code);color:var(--codeink)}
+
+/* ---------- visor del grafo ---------- */
+.gv{--gv-ink:#eef0ff;--gv-mute:rgba(226,230,255,.72);--gv-glass:rgba(22,25,48,.62);--gv-line:rgba(255,255,255,.12);
+  position:fixed;inset:16px;z-index:0;border-radius:26px;overflow:hidden;color:var(--gv-ink);font-size:13px;line-height:1.45;
+  background:transparent;-webkit-backdrop-filter:blur(14px) saturate(1.35);backdrop-filter:blur(14px) saturate(1.35);
+  box-shadow:0 30px 90px rgba(12,12,40,.38),inset 0 0 0 1px rgba(255,255,255,.08);
+  opacity:0;transform:scale(.975);pointer-events:none;transition:opacity .3s,transform .4s cubic-bezier(.3,1.3,.5,1)}
+.gv::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.72;transition:opacity .6s ease;
+  background:radial-gradient(120% 90% at 28% 18%,#1c2046 0%,#0d0f22 52%,#06070e 100%)}
+.gv.deep::before{opacity:.86}
+.gv.open{opacity:1;transform:none;pointer-events:auto}
+@media (prefers-reduced-motion:reduce){.gv{transition:none}}
+#gvCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#gvCanvas.drag{cursor:grabbing}#gvCanvas.pt{cursor:pointer}
+.gv-glass{background:var(--gv-glass);border:1px solid var(--gv-line);-webkit-backdrop-filter:blur(14px) saturate(1.4);backdrop-filter:blur(14px) saturate(1.4);
+  box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),0 10px 30px rgba(0,0,0,.25)}
+.gv-top{position:absolute;left:16px;right:16px;top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;pointer-events:none}
+.gv-top>*{pointer-events:auto}
+.gv-brand{display:flex;align-items:center;gap:10px;padding:7px 14px 7px 8px;border-radius:999px;margin-right:auto}
+.gv-brand i{width:26px;height:26px;border-radius:999px;background:radial-gradient(circle at 35% 30%,#fff 0 8%,var(--accent) 40%,color-mix(in srgb,var(--accent) 50%,#000) 100%);box-shadow:0 0 16px color-mix(in srgb,var(--accent) 70%,transparent)}
+.gv-brand b{font-weight:600;font-size:14px;letter-spacing:-.01em;display:block}
+.gv-brand small{display:block;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--gv-mute)}
+.gv-btn{border:1px solid var(--gv-line);background:rgba(255,255,255,.07);color:var(--gv-ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:13px;cursor:pointer;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);transition:background .15s;white-space:nowrap}
+.gv-btn:hover{background:rgba(255,255,255,.15)}
+.gv-btn:focus-visible,.gv-search input:focus-visible,.gv-nb:focus-visible,.gv-leg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.gv-btn[disabled]{opacity:.4;cursor:default}
+.gv-x{width:36px;height:36px;padding:0;font-size:20px;line-height:1;display:grid;place-items:center}
+.gv-search{display:flex}
+.gv-search input{width:220px;border:1px solid var(--gv-line);background:rgba(255,255,255,.07);color:var(--gv-ink);border-radius:999px;padding:8px 14px;font:inherit;font-size:13px;outline:none;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);user-select:text}
+.gv-search input::placeholder{color:var(--gv-mute)}
+.sr{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.gv-card{position:absolute;left:16px;top:76px;width:300px;max-height:calc(100% - 150px);overflow:auto;border-radius:20px;padding:16px}
+body.left-side .gv-card{left:auto;right:16px}
+.gv-card h3{margin:6px 0 4px;font-size:20px;letter-spacing:-.02em;font-weight:600;word-break:break-word}
+.gv-card p{margin:6px 0;color:var(--gv-mute)}
+.gv-chip{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,Consolas,monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--gv-mute)}
+.gv-chip i,.gv-nb i,.gv-leg i{width:9px;height:9px;border-radius:999px;flex:none;box-shadow:0 0 8px currentColor}
+.gv-meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0;font-size:12px}
+.gv-meta dt{color:var(--gv-mute);font-family:ui-monospace,Consolas,monospace;font-size:11px;padding-top:1px}
+.gv-meta dd{margin:0;word-break:break-all}
+.gv-h{font-family:ui-monospace,Consolas,monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--gv-mute);margin:14px 0 6px}
+.gv-nbs{display:flex;flex-direction:column;gap:3px}
+.gv-nb{display:grid;grid-template-columns:9px minmax(0,1fr) auto;gap:9px;align-items:center;text-align:left;border:1px solid transparent;background:transparent;color:var(--gv-ink);
+  border-radius:10px;padding:6px 8px;font:inherit;font-size:13px;cursor:pointer}
+.gv-nb:hover{background:rgba(255,255,255,.08)}
+.gv-nb.cur{border-color:color-mix(in srgb,var(--accent) 80%,white);background:color-mix(in srgb,var(--accent) 18%,transparent)}
+.gv-nb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gv-nb small{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--gv-mute)}
+.gv-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.gv-row .gv-btn{padding:6px 11px;font-size:12px}
+.gv-tips{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px}
+.gv-tips li{color:var(--gv-mute)}.gv-tips b{color:var(--gv-ink);font-weight:500}
+.gv-leg{position:absolute;left:16px;bottom:16px;right:300px;display:flex;flex-wrap:wrap;gap:6px;pointer-events:none}
+body.left-side .gv-leg{left:300px;right:16px;justify-content:flex-end}
+.gv-leg button{pointer-events:auto;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--gv-line);background:rgba(22,25,48,.55);color:var(--gv-ink);border-radius:999px;padding:5px 11px 5px 9px;
+  font:inherit;font-size:12px;cursor:pointer;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.gv-leg button[aria-pressed="true"]{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.4)}
+.gv-leg small{color:var(--gv-mute);font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+.gv-status{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100% - 48px));border-radius:20px;padding:20px;text-align:center}
+.gv-status p{margin:0 0 12px}.gv-status .gv-btn{margin:0 4px}
+.toolbar button.on{background:var(--accent);color:var(--on-accent)}
+@media (max-width:720px){.gv{inset:8px;border-radius:20px}.gv-search input{width:150px}.gv-card{top:auto;bottom:12px;left:12px;width:calc(100% - 24px);max-height:38%}.gv-leg{display:none}}
