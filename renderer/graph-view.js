@@ -5,6 +5,10 @@ import { buildGraph, find, describe, esc } from './graph-model.js';
 import { createNav, reply, engineContext, cardHtml } from './graph-nav.js';
 import { createSim } from './graph-sim.js';
 
+// Cuántos nodos a la vez pueden llevar luz completa sin que baje la fluidez (medido: 590 van a 60 fps).
+const LIGHT_MAX = 400;
+// Con más relaciones que esto, las tenues se dibujan en una imagen guardada (ver draw).
+const DIM_MAX = 800;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const $ = (root, id) => root.querySelector('#' + id);
 
@@ -19,6 +23,8 @@ export function createGraphView({ root, gota, reduce = false, say = () => {}, on
   let G = null, nav = null, sim = null, byId = new Map();
   let isOpen = false, raf = 0, last = 0, t = 0, tourAt = null, dirty = true, hover = null, down = null, lookTimer = 0;
   const stars = [];
+  const edgeCache = { cv: document.createElement('canvas'), key: '' };
+  let layoutVer = 0; // sube cada vez que los nodos pueden haberse movido: invalida la imagen de relaciones guardada
   const view = { at: null, folder: null };
 
   // ---------- carga y estado ----------
@@ -159,11 +165,32 @@ export function createGraphView({ root, gota, reduce = false, say = () => {}, on
     const hov = hover, hovE = hov && !hl.N ? new Set(G.adj.get(hov).map(e => e.l)) : null;
     const curN = nav.focus && nav.cursor >= 0 ? curNeighbor() : null;
     const bez = l => { const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y; return { cx: (l.s.x + l.t.x) / 2 - dy * 0.12, cy: (l.s.y + l.t.y) / 2 + dx * 0.12 }; };
-    // relaciones tenues
-    ctx.lineWidth = 1 / k; ctx.strokeStyle = hl.N ? 'rgba(170,180,255,.05)' : 'rgba(170,180,255,.14)';
-    ctx.beginPath();
-    for (const l of G.links) { if (hl.E.has(l) || (hovE && hovE.has(l))) continue; const b = bez(l); ctx.moveTo(l.s.x, l.s.y); ctx.quadraticCurveTo(b.cx, b.cy, l.t.x, l.t.y); }
-    ctx.stroke();
+    // relaciones tenues. Con muchas, dibujarlas todas en cada fotograma es lo más caro (medido: de 60 a ~15 fps en un
+    // grafo de 1100 nodos): mientras algo se mueve se dibujan las visibles y una muestra; con todo quieto se dibujan todas
+    // una vez en una imagen y se reutiliza hasta que cambie la cámara o lo elegido.
+    if (!sim.settled || down) layoutVer++;
+    const dimColor = hl.N ? 'rgba(170,180,255,.05)' : 'rgba(170,180,255,.14)';
+    const vx0 = cam.x - w / (2 * k) - 60 / k, vx1 = cam.x + w / (2 * k) + 60 / k, vy0 = cam.y - h / (2 * k) - 60 / k, vy1 = cam.y + h / (2 * k) + 60 / k;
+    const strokeDim = (c, step, cull) => {
+      c.lineWidth = 1 / k; c.strokeStyle = dimColor; c.beginPath();
+      for (let i = 0; i < G.links.length; i += step) {
+        const l = G.links[i];
+        if (hl.E.has(l)) continue;
+        if (cull && ((l.s.x < vx0 && l.t.x < vx0) || (l.s.x > vx1 && l.t.x > vx1) || (l.s.y < vy0 && l.t.y < vy0) || (l.s.y > vy1 && l.t.y > vy1))) continue;
+        const e = bez(l); c.moveTo(l.s.x, l.s.y); c.quadraticCurveTo(e.cx, e.cy, l.t.x, l.t.y);
+      }
+      c.stroke();
+    };
+    if (G.links.length <= DIM_MAX) strokeDim(ctx, 1, false);
+    else if (sim.settled && !down) {
+      const key = [cam.x, cam.y, k, cv.width, cv.height, G.links.length, nav.focus ? nav.focus.id : '', nav.path ? nav.path.nodes.length : '', nav.comm, dimColor, layoutVer].join('|');
+      if (edgeCache.key !== key) {
+        const ec = edgeCache.cv; ec.width = cv.width; ec.height = cv.height;
+        const c2 = ec.getContext('2d'); c2.setTransform(dpr * k, 0, 0, dpr * k, dpr * (w / 2 - cam.x * k), dpr * (h / 2 - cam.y * k));
+        strokeDim(c2, 1, true); edgeCache.key = key;
+      }
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(edgeCache.cv, 0, 0); ctx.restore();
+    } else strokeDim(ctx, Math.ceil(G.links.length / 600), true);
     // relaciones destacadas, con flujo
     const strong = [...hl.E, ...(hovE || [])];
     for (const l of strong) {
@@ -180,17 +207,21 @@ export function createGraphView({ root, gota, reduce = false, say = () => {}, on
       }
     }
     ctx.globalAlpha = 1;
-    // nodos (con degradado y brillo solo si no son demasiados)
-    const fancy = G.nodes.length <= 600;
-    for (const n of G.nodes) {
+    // nodos: solo los que se ven en pantalla. Con pocos a la vista, todos con luz y relieve; con muchos (vista general
+    // de un grafo grande), planos, salvo lo que se está mirando (foco, vecinos, camino, ratón), que siempre lleva luz.
+    const W = sim.w, H = sim.h;
+    const seen = G.nodes.filter(n => { const p = sim.toScreen(n); return p.x > -80 && p.x < W + 80 && p.y > -80 && p.y < H + 80; });
+    const lightAll = seen.length <= LIGHT_MAX;
+    for (const n of seen) {
       const on = !hl.N || hl.N.has(n), col = G.comms[n.c].color, big = n === nav.focus || n === hov || (curN && curN.n === n);
+      const lit = lightAll || big || (hl.N && hl.N.has(n));
       ctx.globalAlpha = on ? 1 : 0.18;
-      if (fancy && on && (hl.N || n.deg > 6 || big)) {
+      if (lit && on && (hl.N || n.deg > 6 || big)) {
         const gr = ctx.createRadialGradient(n.x, n.y, n.r * 0.5, n.x, n.y, n.r * (big ? 4.2 : 3));
         gr.addColorStop(0, col + (big ? '88' : '55')); gr.addColorStop(1, col + '00');
         ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(n.x, n.y, n.r * (big ? 4.2 : 3), 0, 7); ctx.fill();
       }
-      if (fancy) {
+      if (lit) {
         const g = ctx.createRadialGradient(n.x - n.r * 0.35, n.y - n.r * 0.4, n.r * 0.1, n.x, n.y, n.r);
         g.addColorStop(0, '#ffffff'); g.addColorStop(0.28, col); g.addColorStop(1, col + 'aa');
         ctx.fillStyle = g;
