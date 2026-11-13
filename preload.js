@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('astro', {
   opencodeSave: input => ipcRenderer.invoke('opencode:save', input),
   opencodeStatus: () => ipcRenderer.invoke('opencode:status'),
   opencodeModels: () => ipcRenderer.invoke('opencode:models'),
+  opencodeAvailable: () => ipcRenderer.invoke('opencode:available'),
   opencodeCommands: cwd => ipcRenderer.invoke('opencode:commands', cwd),
   opencodeReply: req => ipcRenderer.invoke('opencode:reply', req),
   opencodeCopilot: () => ipcRenderer.invoke('opencode:copilot'),

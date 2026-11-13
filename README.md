@@ -160,6 +160,8 @@ Como en la terminal de Claude Code, puedes escribirle a Astro aunque esté traba
 
 Además de Claude Code, cada sesión puede trabajar con [OpenCode](https://opencode.ai) (probado con las versiones **1.19** y **2.0**: Astro detecta cuál tienes y usa su API). El motor se elige junto a la carpeta, en la nube de pregunta (`✳ Claude Code ▾`): ahí aparecen los modelos de OpenCode conectados. Cambiar de motor empieza otra conversación; cambiar de modelo dentro de OpenCode sigue la misma. En *Ajustes › Motor de las sesiones nuevas* eliges con cuál empiezan las sesiones.
 
+**Sugerencias de motor y modelo.** Con *Ajustes › Sugerir motor y modelo* encendido (viene apagado), al escribir el primer mensaje de una conversación nueva aparece bajo el cuadro un aviso: «💡 Parece una pregunta corta: ¿la mando a OpenCode · *tu modelo*?» o, estando en OpenCode, «Parece trabajo pesado: ¿paso a Claude Code?». Con **Usar** cambia de motor y conserva lo que escribiste; si lo ignoras y envías, todo sigue por el motor que tenías. Las reglas miran el texto (sin llamar a ningún modelo): pedir cambios sobre código o archivos, planes, textos largos o con código van a Claude; preguntas cortas de explicar, resumir o traducir van a OpenCode. Solo sugiere el **modelo predeterminado de OpenCode** de *Ajustes de OpenCode…*, y si ya no está disponible lo dice en vez de cambiar. No sugiere en conversaciones ya empezadas, con comandos `/` ni con una captura adjunta. Si eliges tú el motor o el modelo en el menú de junto a la carpeta, esa sesión se queda con tu elección y no vuelve a sugerir hasta que elijas **💡 Automático** en ese mismo menú. La ✕ del aviso lo calla en esa conversación.
+
 Funciona igual que con Claude: subagentes, pasos, `/resume`, `/historial`, comandos `/` del servidor y escribir mientras trabaja. Los permisos se piden **en el momento**: *Permitir* (esta vez), *Siempre* (en esta conversación) o *No*. Lo que tengas en *Puede usar sin preguntar* vale también para OpenCode.
 
 **Dónde corre.** Con OpenCode instalado en tu equipo no hay que configurar nada: Astro lo arranca cuando lo necesitas (con una contraseña de un solo uso, solo accesible desde tu equipo) y lo apaga al cerrarse. Astro lo busca en el PATH, en el PATH actual del registro de Windows y en las carpetas habituales (`~/.opencode/bin`, npm, Scoop…), así que lo encuentra aunque lo hayas instalado después de abrir sesión. Si no está instalado, Astro te lo dice al usarlo.
@@ -226,6 +228,7 @@ Botón de ajustes (el de los controles deslizantes) de la barra que aparece al p
 - **Cajas:** *Glass* (por defecto) hace translúcidas las nubes, Ajustes, la barra de botones y el panel lateral, con reflejos en el borde; *Glass de color* además tiñe Ajustes, la barra y el panel con el color de Astro; *Sólido* lo deja todo opaco. La ventana de Astro es transparente, así que el vidrio no puede desenfocar el escritorio que hay detrás: los paneles son algo más opacos para que no se mezclen con las nubes.
 - **Siempre encima de las ventanas:** por defecto Astro flota sobre todo. Si lo apagas, queda detrás de las ventanas que uses y vuelve al frente al llamarlo o al detectar una captura.
 - **Detectar capturas de pantalla.**
+- **Sugerir motor y modelo** (apagado por defecto): ver [OpenCode](#opencode).
 - **Pantalla** (solo si tienes más de una): *Auto* aparece en la pantalla donde esté el cursor; un número la fija siempre en esa pantalla (numeradas de izquierda a derecha; pasa el ratón por encima para ver su nombre y resolución). Si desconectas la pantalla elegida, Astro sigue al cursor hasta que vuelva. También está en la bandeja → *Pantalla*.
 
 Las dos últimas también están en el menú de la bandeja, y todos los ajustes se recuerdan entre arranques.
@@ -332,6 +335,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/icon.js` — icono de la bandeja, generado sin archivos.
 - `renderer/gota.js` — el personaje 3D.
 - `renderer/accessories.js` — los diseños (sombreros, animales, disfraces) con sus gestos y sus ayudantes; `renderer/outfits.js` recuerda cuál lleva cada proyecto y entiende «ponte el sombrero de pirata».
+- `renderer/router.js` — reglas que sugieren Claude Code u OpenCode según lo que escribes.
 - `renderer/fx.js` — partículas cortas (confeti, chispas, humo, equis de error).
 - `renderer/tools.js` — cuenta en palabras qué herramienta quiere usar Claude, para los avisos de permiso.
 - `renderer/usage.js` — uso del contexto y respuestas a «¿cuántos tokens quedan?».

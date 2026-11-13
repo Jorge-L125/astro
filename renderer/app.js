@@ -7,6 +7,7 @@ import { designKind, svgSrc, htmlDoc, isViewableFile } from './preview.js';
 import { opencodeForm, opencodeEvent } from './opencode-panel.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
+import { suggestRoute } from './router.js';
 import { outfitFor, choose, withMode, loadOutfitPrefs, saveOutfitPrefs, outfitRequest, seasonSuggestion } from './outfits.js';
 
 const api = window.astro;
@@ -181,7 +182,9 @@ $('bHistory').onclick = () => openHistory();
 $('bMin').onclick = () => gota.minimize();
 $('bQuit').onclick = () => api.quit();
 // Preferencias que guarda el proceso principal (también se cambian desde la bandeja).
+let routeHints = false; // Ajustes → Sugerir motor y modelo
 function showPrefs(p) {
+  routeHints = !!p.routeHints;
   document.querySelectorAll('.toggle[data-pref]').forEach(t => t.setAttribute('aria-checked', String(!!p[t.dataset.pref])));
   if (!p.watchCaptures) dropOffer();
   displayPref = p.display || 'auto';
@@ -312,7 +315,9 @@ function openAsk() {
   const fw = folderButton(active);
   addEngineButton(fw, active);
   askEl.prepend(fw);
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); stickToBottom(active); });
+  const route = routeHint(ta);
+  askEl.append(route.el);
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; gota.typing(); menu.update(); route.update(); stickToBottom(active); });
   ta.addEventListener('keydown', e => {
     if (menu.handleKey(e)) return;
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); b.click(); }
@@ -1235,6 +1240,7 @@ function askConfirm(s, title, text, yesLabel, onYes) {
 
 function resetConversation(s) {
   if (s.busy) return;
+  s.routeOff = false;
   s.claudeId = null; s.history.length = 0;
   s.ctx = null;
   if (s === active) renderContext();
@@ -1515,6 +1521,63 @@ function folderButton(s) {
 }
 
 /* ---------- motor: Claude Code u OpenCode ---------- */
+// ¿Hay OpenCode a mano? Se pregunta sin arrancarlo y se recuerda un minuto.
+let ocAvail = { at: 0, ok: false };
+async function opencodeAvailable() {
+  if (Date.now() - ocAvail.at > 60000) {
+    try { ocAvail = { at: Date.now(), ok: !!(await api.opencodeAvailable()).ok }; } catch { ocAvail = { at: Date.now(), ok: false }; }
+  }
+  return ocAvail.ok;
+}
+// Sugerencia bajo el cuadro de la pregunta: «💡 Parece una pregunta corta: ¿la mando a OpenCode · modelo? [Usar]».
+// Solo en el primer mensaje de una conversación nueva, sin bloquear el envío; el clic en «Usar» cambia de motor
+// y conserva lo escrito. Si la persona eligió motor o modelo a mano (s.pinned), no sale nunca.
+function routeHint(ta) {
+  const el = document.createElement('div');
+  el.className = 'route'; el.hidden = true;
+  el.innerHTML = '<span class="txt"></span><button type="button" class="use">Usar</button><button type="button" class="x" aria-label="Descartar la sugerencia" title="No sugerir más en esta conversación">✕</button>';
+  let timer = null, current = null, seq = 0;
+  const hide = () => { el.hidden = true; current = null; };
+  const update = () => {
+    clearTimeout(timer);
+    const s = active;
+    if (!routeHints || s.pinned || s.routeOff || s.history.length || s.claudeId || attached) { seq++; hide(); return; }
+    timer = setTimeout(async () => {
+      const mine = ++seq;
+      const text = ta.value;
+      const ready = s.engine === 'claude' ? await opencodeAvailable() : true;
+      if (mine !== seq || !el.isConnected || s !== active) return;
+      const sug = suggestRoute(text, { engine: s.engine, hasHistory: false, pinned: false, hasCapture: false, opencodeModel: ocPrefs.defaultModel, opencodeReady: ready });
+      if (!sug) { hide(); return; }
+      current = sug;
+      el.querySelector('.txt').textContent = sug.engine === 'opencode'
+        ? `💡 ${sug.reason}: ¿la mando a OpenCode · ${modelName(sug.model)}?`
+        : `💡 ${sug.reason}: ¿paso a Claude Code?`;
+      el.querySelector('.use').hidden = false;
+      el.hidden = false;
+      stickToBottom(s);
+    }, 300);
+  };
+  el.querySelector('.use').onclick = async () => {
+    if (!current) return;
+    const s = active, text = ta.value, sug = current;
+    // la lista de modelos de OpenCode cambia: si el predeterminado ya no está, se avisa en vez de cambiar
+    if (sug.engine === 'opencode') {
+      const r = await api.opencodeModels().catch(() => ({ ok: false, items: [] }));
+      if (!r.ok || !r.items.some(m => m.id === sug.model)) {
+        el.querySelector('.txt').textContent = r.ok ? `⚠ Tu modelo de OpenCode «${modelName(sug.model)}» ya no está disponible: elige otro en el menú del motor.` : '⚠ OpenCode no responde ahora mismo.';
+        el.querySelector('.use').hidden = true; current = null;
+        return;
+      }
+    }
+    applyEngine(s, sug.engine, sug.model);
+    openAsk();
+    const nt = askEl && askEl.querySelector('textarea');
+    if (nt) { nt.value = text; nt.dispatchEvent(new Event('input')); nt.focus(); }
+  };
+  el.querySelector('.x').onclick = () => { active.routeOff = true; seq++; hide(); ta.focus(); };
+  return { el, update };
+}
 // Cada sesión habla con un motor. Cambiar de motor empieza otra conversación; cambiar de modelo dentro
 // de OpenCode sigue la misma.
 const modelName = id => String(id || '').split('/').slice(1).join('/') || String(id || '');
@@ -1543,7 +1606,8 @@ function addEngineButton(wrap, s) {
     wrap.querySelectorAll('.fmenu').forEach(m => { if (m !== list) m.hidden = true; });
     if (!list.hidden) { list.hidden = true; return; }
     list.innerHTML = '';
-    if (s.engine !== 'claude') item('✳ Claude Code', 'Usa Claude Code con tu cuenta de Claude', () => changeEngine(s, 'claude', null));
+    if (routeHints && s.pinned) item('💡 Automático (sugerir)', 'Vuelve a sugerir motor y modelo en las conversaciones nuevas', () => { s.pinned = false; quip('Volveré a sugerir motor y modelo.'); });
+    if (s.engine !== 'claude') item('✳ Claude Code', 'Usa Claude Code con tu cuenta de Claude', () => changeEngine(s, 'claude', null, true));
     const wait = document.createElement('p');
     wait.className = 'muted'; wait.textContent = 'Buscando modelos de OpenCode…';
     list.append(wait);
@@ -1552,17 +1616,19 @@ function addEngineButton(wrap, s) {
     wait.remove();
     if (!r.ok) item('◇ OpenCode no responde: revisar ajustes', r.message || '', openOpencodeSettings);
     for (const m of r.items.filter(m => m.id !== s.model || s.engine !== 'opencode')) {
-      item(`◇ ${m.name} · ${m.provider}${m.free ? ' (gratis)' : ''}`, m.id, () => changeEngine(s, 'opencode', m.id));
+      item(`◇ ${m.name} · ${m.provider}${m.free ? ' (gratis)' : ''}`, m.id, () => changeEngine(s, 'opencode', m.id, true));
     }
     item('Ajustes de OpenCode…', '', openOpencodeSettings);
   };
   wrap.querySelector('.fbtn').after(b);
   wrap.append(list);
 }
-function changeEngine(s, engine, model) {
+// pin: la persona eligió a mano (menú del motor): desde entonces esa sesión va con eso y Astro no sugiere nada.
+function changeEngine(s, engine, model, pin = false) {
   if (s.busy) { quip('Espera a que termine lo que estoy haciendo.'); return; }
   if (engine === 'opencode' && s.engine === 'opencode') {
-    if (model === s.model) return;
+    if (model === s.model) { if (pin) s.pinned = true; return; }
+    if (pin) s.pinned = true;
     s.model = model;
     if (s === active) { closeAsk(); openAsk(); }
     quip(`Sigo con ${modelName(model)}.`);
@@ -1570,12 +1636,14 @@ function changeEngine(s, engine, model) {
   }
   if (engine === s.engine) return;
   const name = engine === 'opencode' ? 'OpenCode' : 'Claude Code';
-  if (!s.history.length && !s.claudeId) { applyEngine(s, engine, model); return; }
+  if (!s.history.length && !s.claudeId) { applyEngine(s, engine, model, pin); return; }
   askConfirm(s, `¿Paso «${s.name}» a ${name}?`,
     `Empezamos una conversación nueva con ${name}. La actual queda guardada y la puedes retomar con /resume desde ${s.engine === 'opencode' ? 'OpenCode' : 'Claude Code'}.`,
-    'Sí, cambiar', () => applyEngine(s, engine, model));
+    'Sí, cambiar', () => applyEngine(s, engine, model, pin));
 }
-function applyEngine(s, engine, model) {
+function applyEngine(s, engine, model, pin = false) {
+  if (pin) s.pinned = true;
+  s.routeOff = false;
   s.engine = engine;
   s.model = engine === 'opencode' ? model || ocPrefs.defaultModel : null;
   s.claudeId = null; s.history.length = 0;

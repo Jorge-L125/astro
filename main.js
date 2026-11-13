@@ -21,6 +21,7 @@ const { createUpdater } = require('./src/updater');
 const { createOpencodeServer, createOpencodeSession } = require('./src/opencode');
 const { createOpencodeSettings } = require('./src/opencode-settings');
 const ocApi = require('./src/opencode-api');
+const { resolveOpencode } = require('./src/opencode-bin');
 
 // Instancia única: si Astro ya está abierto (como ejecutable o con `pnpm start`), esta copia solo
 // avisa a la primera, que se muestra con la pregunta abierta ('second-instance'), y termina antes
@@ -533,6 +534,12 @@ ipcMain.handle('opencode:status', async () => {
     const info = await ocReady();
     return { ok: true, version: info.version, api: info.api, supported: info.supported, mode: ocSettings.get().mode };
   } catch (e) { return { ok: false, code: e.code || 'failed', message: e.message }; }
+});
+// ¿Hay OpenCode a mano? Sin arrancarlo: en este equipo, se busca el ejecutable; con otro servidor, basta la dirección.
+ipcMain.handle('opencode:available', () => {
+  const cfg = ocSettings.server();
+  if (cfg.mode === 'remote') return { ok: !!cfg.url };
+  return { ok: resolveOpencode(cfg.bin).found };
 });
 ipcMain.handle('opencode:models', async () => {
   try { return { ok: true, items: await ocModels() }; } catch (e) { return { ok: false, message: e.message, items: [] }; }

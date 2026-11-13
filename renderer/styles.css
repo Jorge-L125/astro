@@ -118,6 +118,12 @@ body.left-side .cloud.tail::after{right:auto;left:6px}
 .ask{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;padding:10px 10px 10px 18px;width:380px;max-width:100%}
 .ask textarea{flex:1 1 160px;min-width:0;border:0;background:transparent;resize:none;font:inherit;font-size:15px;color:var(--ink);outline:none;max-height:160px;padding:6px 0;overflow-y:auto}
 .ask textarea::placeholder{color:var(--muted)}
+/* sugerencia de motor y modelo bajo la pregunta */
+.ask .route{flex:1 0 100%;display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:12px;font-size:12.5px;line-height:1.35;color:var(--ink);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.ask .route[hidden]{display:none}
+.ask .route .txt{flex:1;min-width:0}
+.ask .route .use{flex:none;border:0;background:var(--accent);color:var(--on-accent);border-radius:999px;padding:3px 12px;font-weight:700;font-size:12.5px;cursor:pointer}
+.ask .route .x{flex:none;border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:13px;padding:2px 4px}
 
 /* carpeta de trabajo de la sesión, arriba de la pregunta */
 .ask .folder{position:relative;flex:1 0 100%;margin:0 0 -2px -8px}
