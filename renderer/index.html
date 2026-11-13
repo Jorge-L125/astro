@@ -45,6 +45,11 @@
     <button class="toggle" id="tUpdates" role="switch" aria-checked="true" data-pref="autoUpdate" hidden><span>Buscar actualizaciones<small>Las versiones nuevas se descargan solas; tú decides cuándo reiniciar</small></span><i></i></button>
     <button class="toggle" id="tRoute" role="switch" aria-checked="false" data-pref="routeHints"><span>Sugerir motor y modelo<small>Al empezar una conversación, te propone Claude Code u OpenCode según lo que escribes</small></span><i></i></button>
   </div>
+  <div class="grp"><p class="lbl2">Mapa del proyecto</p>
+    <button class="toggle" id="tGraphify" role="switch" aria-checked="false" data-pref="graphifyMap"><span>Mapa del proyecto (graphify)<small>Claude y OpenCode consultan un mapa del código en vez de leer archivos sueltos, y gastan menos tokens. Se hace en tu equipo, sin enviar nada</small></span><i></i></button>
+    <small class="hint" id="graphifyStatus"></small>
+    <button class="more" id="bGraphifyUpdate" hidden>Actualizar el mapa ahora</button>
+    <small class="hint">Al usarlo, pueden consultar el mapa sin preguntarte (solo lectura, solo en esas sesiones)</small></div>
   <div class="grp"><p class="lbl2">Motor de las sesiones nuevas</p><div class="seg" id="seg-engine"><button data-v="claude">Claude Code</button><button data-v="opencode">OpenCode</button></div>
     <button class="more" id="bOpencode">Ajustes de OpenCode…</button></div>
   <div class="grp"><p class="lbl2">Puede usar sin preguntar</p><div class="tools" id="tools"></div></div>

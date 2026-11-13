@@ -8,6 +8,7 @@ import { opencodeForm, opencodeEvent } from './opencode-panel.js';
 import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
 import { suggestRoute } from './router.js';
+import { statusLine, consentText } from './graphify-ui.js';
 import { outfitFor, choose, withMode, loadOutfitPrefs, saveOutfitPrefs, outfitRequest, seasonSuggestion } from './outfits.js';
 
 const api = window.astro;
@@ -171,7 +172,7 @@ function toggleSettings(open = $('settings').hidden) {
   $('settings').hidden = !open;
   body.classList.toggle('settings-open', open);
   $('bSettings').setAttribute('aria-expanded', String(open));
-  if (open) gota.react('curious', 1200);
+  if (open) { gota.react('curious', 1200); refreshGraphify(); }
 }
 $('bSettings').onclick = () => toggleSettings();
 $('bAsk').onclick = () => (askEl ? closeAsk() : openAsk());
@@ -1869,6 +1870,70 @@ api.on('astro:update', u => {
   c.querySelector('.drop').onclick = () => { c.remove(); updateCloud = null; quip('Vale: se instalará cuando cierres Astro.'); };
   gota.wake(); gota.react('surprised', 900); gota.act('hop');
 });
+/* ---------- mapa del proyecto (graphify) ---------- */
+const folderName = f => String(f || '').split(/[\\/]/).filter(Boolean).pop() || 'esta carpeta';
+async function refreshGraphify() {
+  let info;
+  try { info = await api.graphifyStatus(active.folder); } catch { return null; }
+  $('graphifyStatus').textContent = statusLine(info);
+  $('bGraphifyUpdate').hidden = !['ready', 'idle', 'failed'].includes(info.state.status);
+  return info;
+}
+$('bGraphifyUpdate').onclick = async () => {
+  $('bGraphifyUpdate').hidden = true;
+  await api.graphifyBuild(active.folder);
+  refreshGraphify();
+};
+// Pide permiso (una vez) para hacer el mapa de una carpeta; no bloquea nada: se puede ignorar.
+const gfAsking = new Set();
+function consentCloud(folder) {
+  if (gfAsking.has(folder)) return;
+  gfAsking.add(folder);
+  const c = cloud(active, 'capture');
+  c.innerHTML = '<p></p><div class="row"><button class="btn use">Sí, hazlo</button><button class="opt drop">No aquí</button></div>';
+  c.querySelector('p').textContent = consentText(folderName(folder));
+  c.querySelector('.use').onclick = () => { c.remove(); api.graphifyChoose(folder, true); quip('Vale, hago el mapa.'); };
+  c.querySelector('.drop').onclick = () => { c.remove(); api.graphifyChoose(folder, false); quip('Entendido: sin mapa aquí.'); };
+  gota.wake(); gota.react('curious', 900);
+}
+// graphify no está: se enseña el comando y se ofrece instalarlo (solo con un clic) o copiarlo.
+function installCloud(inst) {
+  const c = cloud(active, 'capture');
+  const p = document.createElement('p');
+  p.textContent = 'Para el mapa necesito graphify y no lo encuentro. Se instala con:';
+  const code = document.createElement('code');
+  code.textContent = inst.text;
+  const row = document.createElement('div');
+  row.className = 'row';
+  const add = (cls, label, fn) => { const b = document.createElement('button'); b.className = cls; b.textContent = label; b.onclick = fn; row.append(b); return b; };
+  if (inst.canRun) {
+    add('btn use', 'Instalar', async function () {
+      this.disabled = true; p.textContent = 'Instalando graphify… puede tardar un minuto.'; code.hidden = true;
+      const r = await api.graphifyInstall();
+      if (r.ok) { c.remove(); quip('graphify instalado.'); const info = await refreshGraphify(); if (info && info.state.status === 'unasked') consentCloud(active.folder || ''); }
+      else { p.textContent = 'No pude instalarlo. Puedes copiar el comando y ejecutarlo tú.'; code.hidden = false; this.disabled = false; }
+    });
+  }
+  add('opt', 'Copiar el comando', async () => { await api.graphifyCopy(); quip('Comando copiado.'); });
+  add('opt drop', 'Ahora no', () => c.remove());
+  c.append(p, code, row);
+  gota.wake(); gota.react('curious', 900);
+}
+// Al encender el interruptor sin graphify instalado, se ofrece instalarlo (el valor ya se envió: los mensajes van en orden).
+$('tGraphify').addEventListener('click', async () => {
+  if ($('tGraphify').getAttribute('aria-checked') !== 'true') { refreshGraphify(); return; }
+  const info = await refreshGraphify();
+  if (info && info.state.status === 'missing' && info.install) installCloud(info.install);
+});
+const gfFirstBuild = new Set();
+api.on('astro:graphify', e => {
+  if (e.type === 'install' || !e.state) return;
+  if (e.ask) consentCloud(e.folder);
+  if (e.state.status === 'building' && !e.state.at) gfFirstBuild.add(e.folder);
+  if (e.state.status === 'ready' && gfFirstBuild.delete(e.folder)) quip(`Mapa de «${folderName(e.folder)}» listo: ${e.state.nodes} piezas`);
+  if (!$('settings').hidden) refreshGraphify();
+});
+
 api.on('astro:new', () => newSession());
 api.on('astro:reset', () => confirmReset(active));
 api.on('astro:resume', () => (gota.isMinimized() ? restoreThen(openResume) : openResume()));

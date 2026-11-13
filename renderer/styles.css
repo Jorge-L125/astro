@@ -414,6 +414,7 @@ body.tint .toolbar button:hover{background:color-mix(in srgb,var(--accent) 20%,t
 .fmenu .muted{margin:4px 9px;font-size:12.5px;color:var(--muted)}
 .more{border:0;background:transparent;color:var(--accent);font-size:12.5px;font-weight:600;padding:6px 0 0;cursor:pointer}
 .more:hover{text-decoration:underline}
+.cloud code{display:block;margin:6px 0;padding:6px 8px;border-radius:8px;font-size:12px;word-break:break-all;background:color-mix(in srgb,var(--ink) 8%,transparent)}
 .cloud.perm.live .row{flex-wrap:wrap}
 .ocform [hidden]{display:none!important}
 .ocform label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin-top:12px}
