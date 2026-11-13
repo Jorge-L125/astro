@@ -104,7 +104,8 @@ function createGraphMap({ dir, home = os.homedir(), platform = process.platform,
   // Claves de API que graphify podría leer del entorno: aquí van siempre vacías (solo se usa el análisis local).
   const API_KEYS = ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'KIMI_API_KEY', 'MOONSHOT_API_KEY'];
   const cleanEnv = () => { const env = { ...process.env }; for (const k of API_KEYS) env[k] = ''; return env; };
-  const quote = a => (/[\s"]/.test(a) ? `"${a}"` : a);
+  // En la consola de Windows, además de los espacios, & | < > ^ % ( ) tienen significado propio: se entrecomillan.
+  const quote = a => (/[\s"&|<>^%()]/.test(a) ? `"${a}"` : a);
   const lastLine = text => String(text || '').split('\n').map(l => l.trim()).filter(Boolean).pop() || '';
 
   // Ejecuta graphify y devuelve { code, stdout, stderr, error? }; nunca rechaza. Pasado el tiempo, cierra el árbol.

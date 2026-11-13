@@ -168,3 +168,13 @@ test('ensure nunca rechaza, aunque no se pueda lanzar el proceso', async () => {
   assert.equal(st.status, 'failed');
   assert.match(st.error, /boom/);
 });
+
+test('con la consola (graphify.cmd) una carpeta con & o | no puede añadir órdenes', async () => {
+  const sp = fakeGraphify({ never: true });
+  const { gm } = make(sp, { resolveBin: () => ({ command: 'C:/g/graphify.cmd', shell: true, found: true }) });
+  const odd = '/home/ana/a&calc|x';
+  gm.choose(odd, true);
+  gm.ensure(odd);
+  await until(() => sp.calls.length > 0);
+  assert.ok(sp.calls[0].cmd.includes(`"${odd}"`), sp.calls[0].cmd);
+});
