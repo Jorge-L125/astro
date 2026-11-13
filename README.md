@@ -199,6 +199,16 @@ Si lo activas en Ajustes → «Mapa del proyecto», Astro usa [graphify](https:/
 - **El ahorro es una estimación.** Ajustes muestra «≈N× menos tokens por consulta que leer todo el código»: es la comparación con leer el código entero, que ninguno de los dos hace; el ahorro real es menor.
 - Probado con graphify 0.9; con otra versión, Astro te avisa de que puede fallar. Si lo apagas, todo funciona exactamente como antes.
 
+### Visor del grafo
+
+Con el mapa listo, el botón de la barra (o `Ctrl+G`, o decir «muéstrame el grafo») abre el grafo del proyecto en una capa a pantalla completa: comunidades de colores, tarjeta con las conexiones del nodo elegido y la gota mirando hacia él. Se maneja con el ratón (arrastrar, rueda, clic, doble clic), con el teclado (← → Enter Retroceso `/` `f` Esc) y hablando con Astro:
+
+- **Lo entiende Astro solo, sin gastar tokens:** «ve a …», «camino de A a B», «recorrido», «siguiente» / «anterior» / «entra» / «atrás», «más conectado», «comunidad», «vecinos», «vista general», «cierra el grafo». Solo en frases cortas.
+- **Todo lo demás va a Claude Code u OpenCode** (el de la sesión), con el nodo elegido y sus vecinos como contexto. Eso sí gasta tokens, como cualquier pregunta.
+- **Grafos grandes:** si tienen más de 1500 nodos se enseñan los 1500 más conectados («mostrando 1500 de N»); buscar un nodo oculto o elegir una comunidad en la leyenda lo trae.
+- Si el mapa no está listo, el visor dice por qué y ofrece lo que corresponde (activarlo, darle permiso, hacerlo o ver cómo instalar graphify). Si el mapa se actualiza con el visor abierto, avisa con «Mapa actualizado · recargar».
+- Es de solo lectura: no escribe nada en tu proyecto. Con «reducir movimiento» del sistema, sin animaciones de flujo.
+
 ## Sesiones
 
 Cada sesión es una conversación independiente con Claude Code: tiene su color, sus nubes, sus ayudantes y su historial. Una sesión puede seguir trabajando mientras está detrás.
@@ -339,6 +349,7 @@ Las llamadas que hace el propio Astro no generan avisos (el hook las ignora).
 - `src/opencode-map.js` — traducciones entre OpenCode y Astro (respuesta, herramientas, permisos, carpetas, historial).
 - `src/opencode-settings.js` + `renderer/opencode-panel.js` — ajustes de OpenCode; la contraseña y la clave van cifradas.
 - `src/graphify-bin.js` + `src/find-bin.js` — dónde está graphify (y cómo instalarlo); `src/graphify-map.js` — un mapa por carpeta, su estado y su construcción en segundo plano; `src/graphify-prompt.js` — las instrucciones y permisos de solo lectura para consultarlo; `renderer/graphify-ui.js` — los textos de Ajustes y los avisos.
+- `src/graph-data.js` — el grafo del mapa de una carpeta, de solo lectura, para el visor. `renderer/graph-model.js` (nodos, comunidades, búsqueda, caminos, tope de 1500), `renderer/graph-nav.js` (navegación, frases que Astro entiende solo y el contexto que va al motor), `renderer/graph-sim.js` (fuerzas y cámara) y `renderer/graph-view.js` (canvas, tarjeta y leyenda).
 - `src/prompts.js` — personalidad de Astro y formato de respuesta.
 - `src/commands.js` + `renderer/slash.js` — comandos / (qué se muestra, menú y respuestas).
 - `src/captures.js` + `src/screenshot-dir.js` — detección de capturas de pantalla (carpeta del sistema y portapapeles).

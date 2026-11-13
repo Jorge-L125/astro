@@ -22,7 +22,7 @@ const fakeMap = (over = {}) => ({ graphPath: () => null, state: () => ({ status:
 test('sin mapa listo explica el estado y no lee nada', async () => {
   let read = 0;
   const r = await loadGraphFor({ graphMap: fakeMap(), folder: 'C:\\a\\mi-app', readFile: async () => { read++; return '{}'; } });
-  assert.deepEqual(r, { ok: false, state: { status: 'unasked' } });
+  assert.deepEqual(r, { ok: false, folder: 'C:\\a\\mi-app', state: { status: 'unasked' } });
   assert.equal(read, 0);
 });
 
@@ -33,6 +33,7 @@ test('con mapa lee solo la ruta del mapa y pone nombre y fecha', async () => {
   assert.deepEqual(asked, ['D:/datos/graphs/abc/graphify-out/graph.json']);
   assert.equal(r.ok, true);
   assert.equal(r.title, 'mi-app');
+  assert.equal(r.folder, 'C:\\a\\mi-app');
   assert.equal(r.at, 123);
   assert.equal(r.nodes.length, 1);
 });

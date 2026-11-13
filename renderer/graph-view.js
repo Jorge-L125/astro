@@ -19,7 +19,7 @@ export function createGraphView({ root, gota, reduce = false, say = () => {}, on
   let G = null, nav = null, sim = null, byId = new Map();
   let isOpen = false, raf = 0, last = 0, t = 0, tourAt = null, dirty = true, hover = null, down = null, lookTimer = 0;
   const stars = [];
-  const view = { at: null };
+  const view = { at: null, folder: null };
 
   // ---------- carga y estado ----------
   function header() {
@@ -48,17 +48,17 @@ export function createGraphView({ root, gota, reduce = false, say = () => {}, on
   view.load = data => {
     const g = buildGraph(data, { title: data.title || 'Grafo' });
     G = g; nav = createNav(G); sim = createSim(G); byId = new Map(G.all.nodes.map(n => [n.id, n]));
-    view.at = data.at ?? null; stale.hidden = true; status.hidden = true; tourAt = null;
+    view.at = data.at ?? null; view.folder = data.folder ?? null; stale.hidden = true; status.hidden = true; tourAt = null;
     header();
     $(root, 'gvList').innerHTML = [...G.all.nodes].sort((a, b) => b.deg - a.deg).slice(0, 400).map(n => `<option value="${esc(n.label)}"></option>`).join('');
     resize(); sim.warm(); sim.fit(null, { instant: true });
     render();
   };
 
-  /** Un mensaje en lugar del grafo (sin mapa, apagado, construyendo…). `html` ya viene escapado por quien llama. */
-  view.showStatus = (html, buttons = []) => {
+  /** Un mensaje (texto plano) en lugar del grafo: sin mapa, apagado, construyendo… con botones opcionales. */
+  view.showStatus = (text, buttons = []) => {
     G = null; nav = null; sim = null; stale.hidden = true;
-    status.innerHTML = `<p>${html}</p>`;
+    status.replaceChildren(); const p = document.createElement('p'); p.textContent = text; status.append(p);
     for (const b of buttons) { const el = document.createElement('button'); el.className = 'gv-btn'; el.type = 'button'; el.textContent = b.label; el.onclick = b.onClick; status.append(el); }
     status.hidden = false;
     card.innerHTML = ''; legend.innerHTML = '';

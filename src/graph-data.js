@@ -33,15 +33,15 @@ function slimGraph(json) {
 
 const folderTitle = f => String(f || '').split(/[\\/]/).filter(Boolean).pop() || 'Grafo';
 
-/** { ok:true, title, at, nodes, links } con el mapa listo; { ok:false, state } si no hay mapa o no se pudo leer. */
+/** { ok:true, folder, title, at, nodes, links } con el mapa listo; { ok:false, state } si no hay mapa o no se pudo leer. */
 async function loadGraphFor({ graphMap, folder, readFile = fs.promises.readFile }) {
   const file = graphMap.graphPath(folder);
-  if (!file) return { ok: false, state: graphMap.state(folder) };
+  if (!file) return { ok: false, folder, state: graphMap.state(folder) };
   try {
     const json = JSON.parse(await readFile(file, 'utf8'));
-    return { ok: true, title: folderTitle(folder), at: graphMap.state(folder).at, ...slimGraph(json) };
+    return { ok: true, folder, title: folderTitle(folder), at: graphMap.state(folder).at, ...slimGraph(json) };
   } catch (e) {
-    return { ok: false, state: { status: 'failed', error: e.message } };
+    return { ok: false, folder, state: { status: 'failed', error: e.message } };
   }
 }
 

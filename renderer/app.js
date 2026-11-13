@@ -9,6 +9,8 @@ import { contextInfo, usageQuestion, contextSpeech } from './usage.js';
 import { ACCESSORY_LIST } from './accessories.js';
 import { suggestRoute } from './router.js';
 import { statusLine, consentText } from './graphify-ui.js';
+import { createGraphView } from './graph-view.js';
+import { graphRequest } from './graph-nav.js';
 import { outfitFor, choose, withMode, loadOutfitPrefs, saveOutfitPrefs, outfitRequest, seasonSuggestion } from './outfits.js';
 
 const api = window.astro;
@@ -330,11 +332,14 @@ function openAsk() {
     const cmd = parseSlash(v);
     if (cmd && !cmd.args && (cmd.name === 'resume' || cmd.name === 'clear' || cmd.name === 'historial')) { runLocal(cmd.name); return; }
     if (isCompliment(v)) gota.compliment();
+    // El grafo del proyecto: «ve a…», «camino de A a B»… lo resuelve Astro sin llamar al motor y la pregunta sigue abierta para seguir.
+    if (!attached && !cmd && graphTalk(v)) { ta.value = ''; ta.dispatchEvent(new Event('input')); return; }
     // Con Astro trabajando, el mensaje se le pasa a Claude como en la terminal.
     if (active.busy) { sendWhileBusy(active, v); return; }
     const cap = attached;
     attached = null; // pasa a la pregunta: ya no se descarta al cerrar
-    ask(active, v, cap);
+    // con el visor abierto, lo que Astro no entiende va al motor con el nodo elegido como contexto
+    ask(active, v, cap, { graphCtx: !cmd && graphView.isOpen ? graphView.context() : '' });
   };
   renderAttachment();
   ta.focus();
@@ -1024,7 +1029,7 @@ async function ask(s, text, capture = null, opts = {}) {
   let t = thinkingCloud(s), data, denials = [], plan = null;
   stepsLink(s, t);
   try {
-    let r = await call(s, 'ask', { conv: s.id, text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
+    let r = await call(s, 'ask', { conv: s.id, text: opts.graphCtx ? `${opts.graphCtx}\n\n${text}` : text, resume: s.claudeId, captureId: capture ? capture.id : null }, progressInto(t, s));
     s.claudeId = r.sessionId || s.claudeId;
     trackContext(s, r, cmd);
     // Un comando responde con texto libre (o nada, como /compact): se adapta a nubes y hojas.
@@ -1475,6 +1480,7 @@ function applyFolder(s, dir) {
   if (s === active) { closeAsk(); closePanel(); }
   clearClouds(s); clearAgents(s);
   renderSessions();
+  if (s === active) reloadGraphIfOpen();
   gota.act('hop');
   const kept = had && prev ? ` La conversación anterior quedó guardada en «${baseName(prev)}».` : '';
   greet(s, `Ahora trabajo en «${baseName(dir)}».${kept} ¿Qué hacemos?`);
@@ -1777,6 +1783,7 @@ function onSwitched(id) {
   gota.setMood(s.mood);
   gota.setBusy?.(s.busy);
   renderSessions();
+  reloadGraphIfOpen();
   if (s.pending) {
     gota.react(s.pending === 'error' ? 'worried' : 'happy', 1400);
     s.pending = null;
@@ -1805,6 +1812,7 @@ addEventListener('keydown', e => {
     else if (!$('settings').hidden) toggleSettings(false);
     return;
   }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === 'KeyG') { e.preventDefault(); toggleGraph(); return; }
   if (!e.altKey || e.ctrlKey) return;
   const m = /^Digit([1-6])$/.exec(e.code);
   if (m) {
@@ -1932,7 +1940,77 @@ api.on('astro:graphify', e => {
   if (e.state.status === 'building' && !e.state.at) gfFirstBuild.add(e.folder);
   if (e.state.status === 'ready' && gfFirstBuild.delete(e.folder)) quip(`Mapa de «${folderName(e.folder)}» listo: ${e.state.nodes} piezas`);
   if (!$('settings').hidden) refreshGraphify();
+  // visor del grafo: si estaba esperando el mapa, ya se puede abrir; si ya lo enseña y hay uno más nuevo, se avisa
+  if (graphView.isOpen && e.state.status === 'ready') {
+    if (!graphView.hasGraph) openGraph(null, { quiet: true });
+    else if (e.folder === graphView.folder && e.state.at > graphView.at) graphView.markStale();
+  }
 });
+
+/* ---------- visor del grafo ---------- */
+const graphView = createGraphView({
+  root: $('graphView'), gota, reduce, say: text => graphSay(text),
+  onClose: () => setGraphBtn(false),
+  onReload: () => openGraph(null, { quiet: true }),
+  // Esc cierra el visor solo si no hay otra cosa abierta que Esc ya cierre
+  escapeFree: () => !askEl && !body.classList.contains('panel-open') && $('settings').hidden,
+  side: () => (body.classList.contains('left-side') ? -1 : 1),
+});
+function setGraphBtn(on) { $('bGraph').classList.toggle('on', on); $('bGraph').setAttribute('aria-pressed', String(on)); }
+// Lo que Astro responde del grafo va en una sola nube que se sustituye en cada respuesta.
+let graphCloud = null;
+function graphSay(text) {
+  if (!text) return;
+  if (graphCloud) graphCloud.remove();
+  const c = graphCloud = cloud(active, 'quip graph');
+  c.textContent = text;
+  gota.talk(text.length);
+  setTimeout(() => { if (graphCloud === c) graphCloud = null; c.remove(); }, 12000);
+}
+// Con el visor cerrado entiende «muéstrame el grafo [de X]»; con él abierto, las órdenes de navegación. true = ya está resuelto.
+function graphTalk(text) {
+  if (graphView.isOpen) { const r = graphView.reply(text); if (r) { graphSay(r); return true; } return false; }
+  const q = graphRequest(text);
+  if (!q) return false;
+  if (q.close) graphSay('El grafo ya está cerrado.'); else openGraph(q.target);
+  return true;
+}
+// El mapa no está listo: se explica por qué y se ofrece lo que corresponda.
+function graphStatusButtons(state, folder) {
+  const again = () => openGraph(null, { quiet: true });
+  switch (state.status) {
+    case 'off': return [{ label: 'Activar el mapa', onClick: async () => { await api.setPref('graphifyMap', true); again(); } }];
+    case 'missing': return [{ label: 'Cómo instalarlo', onClick: async () => { const info = await api.graphifyStatus(folder); if (info && info.install) installCloud(info.install); } }];
+    case 'unasked': case 'declined': return [{ label: 'Hacer el mapa', onClick: async () => { await api.graphifyChoose(folder, true); again(); } }];
+    case 'idle': case 'failed': return [{ label: state.status === 'failed' ? 'Reintentar' : 'Hacer el mapa', onClick: async () => { await api.graphifyBuild(folder); again(); } }];
+    default: return [];
+  }
+}
+let graphOpening = false;
+async function openGraph(target, { quiet = false } = {}) {
+  if (graphOpening) return;
+  if (gota.isMinimized()) { restoreThen(() => openGraph(target, { quiet })); return; }
+  graphOpening = true;
+  try {
+    gota.wake();
+    const folder = active.folder;
+    let r;
+    try { r = await api.graphifyGraph(folder); } catch { r = { ok: false, state: { status: 'failed', error: 'no pude leer el mapa' } }; }
+    let loaded = false;
+    if (r.ok) { try { graphView.load(r); loaded = true; } catch { graphView.showStatus('El mapa de esta carpeta no tiene nodos todavía.', graphStatusButtons({ status: 'idle' }, folder)); } }
+    else graphView.showStatus(statusLine({ state: r.state }), graphStatusButtons(r.state, folder));
+    graphView.open(); setGraphBtn(true);
+    if (!quiet) { gota.react('joy', 1200); gota.act('hop'); }
+    if (loaded && !quiet) {
+      const said = target ? graphView.goTo(target) : null;
+      graphSay(said || (target ? `No encuentro «${target}» en el grafo.` : 'Este es el mapa. Pídeme «ve a …», «recorrido» o «camino de A a B».'));
+    }
+  } finally { graphOpening = false; }
+}
+function toggleGraph() { if (graphView.isOpen) { graphView.close(); setGraphBtn(false); } else openGraph(); }
+$('bGraph').onclick = toggleGraph;
+// Con otra carpeta o sesión al frente, el visor enseña el grafo de esa carpeta
+const reloadGraphIfOpen = () => { if (graphView.isOpen) openGraph(null, { quiet: true }); };
 
 api.on('astro:new', () => newSession());
 api.on('astro:reset', () => confirmReset(active));
