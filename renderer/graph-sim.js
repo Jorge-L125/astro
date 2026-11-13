@@ -6,7 +6,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 export function createSim(G, { random = Math.random } = {}) {
   const sim = {
-    alpha: 1, cam: { x: 0, y: 0, k: 1 }, camT: null, w: 0, h: 0,
+    alpha: 1, cam: { x: 0, y: 0, k: 1 }, camT: null, w: 0, h: 0, side: 1, // side: 1 = tarjeta a la izquierda, -1 = a la derecha
 
     /** Un paso de fuerzas: repulsión entre cercanos (con rejilla), muelles de las relaciones y atracción a la órbita de la comunidad. */
     step() {
@@ -60,7 +60,7 @@ export function createSim(G, { random = Math.random } = {}) {
     /** Hacia un nodo, acercándose (k) sin taparlo con la tarjeta. */
     fly(n, k) {
       const kk = clamp(k ?? Math.max(sim.cam.k, 1.5), 0.15, 4);
-      sim.camT = { x: n.x - sim.cardOff() / kk, y: n.y + (sim.w > 720 ? 0 : sim.h * 0.18 / kk), k: kk };
+      sim.camT = { x: n.x - sim.side * sim.cardOff() / kk, y: n.y + (sim.w > 720 ? 0 : sim.h * 0.18 / kk), k: kk };
       return sim.camT;
     },
     /** Encuadra una lista de nodos (o todos los visibles). */
@@ -71,7 +71,7 @@ export function createSim(G, { random = Math.random } = {}) {
       list.forEach(n => { x0 = Math.min(x0, n.x - n.r); y0 = Math.min(y0, n.y - n.r); x1 = Math.max(x1, n.x + n.r); y1 = Math.max(y1, n.y + n.r); });
       const aw = sim.w - sim.cardOff() * 2 - 60, ah = sim.h - 190;
       const k = clamp(Math.min(aw / Math.max(60, x1 - x0), ah / Math.max(60, y1 - y0)), 0.12, 2.6);
-      sim.camT = { x: (x0 + x1) / 2 - sim.cardOff() / k, y: (y0 + y1) / 2 - 10 / k, k };
+      sim.camT = { x: (x0 + x1) / 2 - sim.side * sim.cardOff() / k, y: (y0 + y1) / 2 - 10 / k, k };
       if (instant) { sim.cam = { ...sim.camT }; sim.camT = null; }
       return sim.camT;
     },

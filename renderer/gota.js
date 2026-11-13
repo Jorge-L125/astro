@@ -935,6 +935,8 @@ export function createGota(host, opts = {}) {
     act: play,
     talk: chars => { talkUntil = T + Math.min(2.2, 0.5 + chars * 0.035); },
     wake: () => wake(true),
+    // mira hacia un punto de la pantalla (p. ej. el nodo del grafo que se está enseñando)
+    lookAtPoint: (x, y, secs = 2.4) => { if (mode === 'awake') { lookAt = { x, y, until: T + secs }; lastActive = T; } },
     minimize,
     restore,
     // sesiones
