@@ -40,7 +40,14 @@ test('detecta uv y pipx, y ninguno si no están', () => {
   const uv = touch(path.join(home, '.local', 'bin', exe('uv')));
   const pipx = touch(path.join(home, '.local', 'bin', exe('pipx')));
   assert.deepEqual(detectInstallers(base(home)), { uv, pipx });
-  assert.deepEqual(detectInstallers(base(tmp())), { uv: null, pipx: null });
+  // aislado del equipo: en CI existe un pipx de verdad en /usr/local/bin
+  assert.deepEqual(detectInstallers({ ...base(tmp()), posixDirs: () => [], winDirs: () => [] }), { uv: null, pipx: null });
+});
+
+test('las carpetas conocidas se pueden sustituir (así las pruebas no dependen de lo que haya instalado en el equipo)', () => {
+  const dir = tmp();
+  const pipx = touch(path.join(dir, 'pipx'));
+  assert.deepEqual(detectInstallers({ platform: 'linux', env: { PATH: '' }, home: tmp(), freshPath: () => '', posixDirs: () => [dir] }), { uv: null, pipx });
 });
 
 test('el plan de instalación: uv, si no pipx, si no solo el comando para copiar', () => {

@@ -19,12 +19,12 @@ const dirs = { winDirs, posixDirs };
 
 /** Cómo lanzar graphify: { command, shell, found } (ver `findBin`). */
 function resolveGraphify(bin, opts = {}) {
-  return findBin('graphify', bin, { ...opts, ...dirs });
+  return findBin('graphify', bin, { ...dirs, ...opts });
 }
 
 /** Ruta absoluta de uv y de pipx (null si no están). */
 function detectInstallers(opts = {}) {
-  const look = name => { const r = findBin(name, undefined, { ...opts, ...dirs }); return r.found ? r.command : null; };
+  const look = name => { const r = findBin(name, undefined, { ...dirs, ...opts }); return r.found ? r.command : null; };
   return { uv: look('uv'), pipx: look('pipx') };
 }
 
