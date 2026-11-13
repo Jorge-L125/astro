@@ -5,7 +5,8 @@ const path = require('path');
 // display: 'auto' (aparece en la pantalla del cursor) o el id de una pantalla concreta.
 // autoUpdate: buscar versiones nuevas de Astro (solo Windows con la app instalada).
 // routeHints: al empezar una conversación, sugerir Claude Code u OpenCode según lo que se escribe.
-const PREF_DEFAULTS = { alwaysOnTop: true, watchCaptures: true, display: 'auto', autoUpdate: true, routeHints: false };
+// graphifyMap: mapa del código de cada proyecto (graphify) que Claude y OpenCode consultan para gastar menos tokens.
+const PREF_DEFAULTS = { alwaysOnTop: true, watchCaptures: true, display: 'auto', autoUpdate: true, routeHints: false, graphifyMap: false };
 
 function createPrefs(dir) {
   const file = path.join(dir, 'prefs.json');

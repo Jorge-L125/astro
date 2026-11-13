@@ -42,3 +42,12 @@ test('sugerir motor y modelo empieza apagado y se puede encender y recordar', t 
   assert.equal(p.set('routeHints', 'sí'), false, 'solo vale un booleano');
   assert.equal(createPrefs(dir).get().routeHints, true, 'se recuerda entre arranques');
 });
+
+test('el mapa del proyecto (graphify) empieza apagado y se recuerda al encenderlo', t => {
+  const dir = tmpDir(t);
+  assert.equal(createPrefs(dir).get().graphifyMap, false);
+  const p = createPrefs(dir);
+  assert.equal(p.set('graphifyMap', true), true);
+  assert.equal(p.set('graphifyMap', 1), false, 'solo vale un booleano');
+  assert.equal(createPrefs(dir).get().graphifyMap, true);
+});

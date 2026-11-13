@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder', 'astro:update', 'astro:opencode'];
+const EVENTS = ['claude:event', 'astro:summon', 'astro:notify', 'astro:minimize', 'astro:new', 'astro:reset', 'astro:resume', 'astro:capture', 'astro:prefs', 'astro:commands', 'astro:displays', 'astro:welcome-back', 'astro:folder', 'astro:update', 'astro:opencode', 'astro:graphify'];
 
 contextBridge.exposeInMainWorld('astro', {
   setIgnore: ignore => ipcRenderer.send('mouse:ignore', ignore),
@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('astro', {
   opencodeStatus: () => ipcRenderer.invoke('opencode:status'),
   opencodeModels: () => ipcRenderer.invoke('opencode:models'),
   opencodeAvailable: () => ipcRenderer.invoke('opencode:available'),
+  graphifyStatus: folder => ipcRenderer.invoke('graphify:status', folder),
+  graphifyChoose: (folder, yes) => ipcRenderer.invoke('graphify:choose', { folder, yes }),
+  graphifyBuild: folder => ipcRenderer.invoke('graphify:build', folder),
+  graphifyInstall: () => ipcRenderer.invoke('graphify:install'),
+  graphifyCopy: () => ipcRenderer.invoke('graphify:copy'),
   opencodeCommands: cwd => ipcRenderer.invoke('opencode:commands', cwd),
   opencodeReply: req => ipcRenderer.invoke('opencode:reply', req),
   opencodeCopilot: () => ipcRenderer.invoke('opencode:copilot'),
